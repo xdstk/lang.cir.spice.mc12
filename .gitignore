@@ -5,3 +5,4 @@ out_ckt/
 *.ANO
 *.DNO
 report.json
+out/
