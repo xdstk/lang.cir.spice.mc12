@@ -37,7 +37,8 @@
 
 ## Окружение автора
 - Windows, i5-10300H, GTX 1660 Ti Max-Q (6 ГБ, Turing, без bf16). Обучение - Colab.
-- Micro-Cap 12: путь к `mc12_64.exe` указать здесь после проверки: `<ПУТЬ_К_MC12>`.
+- Micro-Cap 12: `C:\MC12\mc12.exe` (примеры `C:\MC12\DATA`, руководства `C:\MC12\Documents`).
+  Python 3.12: `%LOCALAPPDATA%\Programs\Python\Python312\python.exe`.
   Папка примеров `DATA` - только читать, оригиналы не менять.
 - Генерируемые файлы складывать в `out/` (в .gitignore), не в tests/ и не в DATA.
 

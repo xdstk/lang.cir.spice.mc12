@@ -42,6 +42,8 @@ DEVICES = {
     "Subckt": ("X", "NAME", None),
 }
 IGNORED = {"Ground"}
+# другие имена тех же выводов в compdef: в примерах DATA MC12 вывод подложки MOSFET - "Body"
+PIN_ALIASES = {"Bulk": ["Body"]}
 
 
 # ---------------------------------------------------------------- разбор файла
@@ -281,6 +283,7 @@ def convert(text, title="circuit"):
         letter, vattr, order = dev
         pmap = pins_by_comp.get(id(c), {})
         order = order or [p[0] for p in d["pins"]]
+        order = [next((a for a in PIN_ALIASES.get(p, []) if a in pmap and p not in pmap), p) for p in order]
         try:
             nodes = [node(pmap[p]) for p in order]
         except KeyError as e:
@@ -336,22 +339,36 @@ def convert(text, title="circuit"):
         an = lim.get("Analysis")
         if an not in used:
             continue
-        if an == "Transient" and "TMax" in lim:
+        # диапазон времени: TMax= в файлах старых версий, TRange= в новых ("tmax[,tstart]")
+        trange = lim.get("TMax") or lim.get("TRange")
+        if an == "Transient" and trange:
+            tmax = trange.split(",")[0].strip()
             step = lim.get("TStep", "0")
-            step = step if spice_num(step) else fmt(spice_num(lim["TMax"]) / 1000)
-            lines.append(f".TRAN {step} {lim['TMax']}")
+            step = step if spice_num(step) else fmt(spice_num(tmax) / 1000)
+            lines.append(f".TRAN {step} {tmax}")
             if printed["Transient"]:
                 lines.append(".PRINT TRAN " + " ".join(printed["Transient"]))
         if an == "AC" and "FRange" in lim:
-            fmax, fmin = [x.strip() for x in lim["FRange"].split(",")]
-            npts = int(float(lim.get("NPts", "101")))
-            dec = max(1e-9, math.log10(spice_num(fmax) / spice_num(fmin)))
-            lines.append(f".AC DEC {max(1, math.ceil(npts / dec))} {fmin} {fmax}")
+            sweep = lim.get("Sweep type", "Auto")
+            fr = [x.strip() for x in lim["FRange"].split(",")]
+            if sweep == "List" or len(fr) != 2:
+                warn.append(f"AC: развёртка '{sweep}' с FRange={lim['FRange']} не переведена в .AC")
+                continue
+            fmax, fmin = fr
+            npts = int(spice_num(lim.get("NPts", "101")))  # бывает с суффиксом: NPts=1k
+            if sweep == "Linear":
+                lines.append(f".AC LIN {max(1, npts)} {fmin} {fmax}")
+            else:
+                dec = max(1e-9, math.log10(spice_num(fmax) / spice_num(fmin)))
+                lines.append(f".AC DEC {max(1, math.ceil(npts / dec))} {fmin} {fmax}")
             if printed["AC"]:
                 lines.append(".PRINT AC " + " ".join(printed["AC"]))
     lines.append(".END")
+    n_comp = sum(1 for c in comps if c.get('name') not in IGNORED)
+    if n_comp == 0:
+        warn.append("в схеме нет компонентов (текстовый файл или страница без чертежа)")
     return "\n".join(lines) + "\n", {"warnings": warn, "errors": errors,
-                                     "n_components": sum(1 for c in comps if c.get('name') not in IGNORED),
+                                     "n_components": n_comp,
                                      "n_nodes": len(set(names.values()))}
 
 
@@ -377,11 +394,18 @@ def main(argv):
     src = Path(argv[1])
     out = Path(argv[argv.index("--out") + 1]) if "--out" in argv else None
     rep_path = argv[argv.index("--report") + 1] if "--report" in argv else None
-    files = sorted(src.glob("*.cir")) + sorted(src.glob("*.CIR")) if src.is_dir() else [src]
+    # на Windows glob не различает регистр: без set каждый файл попадал бы дважды
+    files = sorted({f for f in src.iterdir() if f.suffix.lower() == ".cir"}) if src.is_dir() else [src]
     report = {}
     for f in files:
         text = f.read_text(encoding="cp1251", errors="replace")
-        net, info = convert(text, f.stem)
+        try:
+            net, info = convert(text, f.stem)
+        except Exception as e:  # один сломанный файл не должен останавливать прогон по папке
+            report[f.name] = {"warnings": [], "errors": [f"сбой конвертера: {type(e).__name__}: {e}"],
+                              "n_components": 0, "n_nodes": 0}
+            print(f"# {f.name}: CRASH {type(e).__name__}: {e}", file=sys.stderr)
+            continue
         report[f.name] = info
         if out:
             out.mkdir(parents=True, exist_ok=True)
