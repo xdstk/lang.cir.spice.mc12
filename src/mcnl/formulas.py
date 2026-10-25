@@ -137,6 +137,32 @@ def mfb_bp(R1, R2, R3, Ca, Cb, dc=0):
                              "f0": w0 / TWO_PI, "Q": w0 * R3 * Ca * Cb / (Ca + Cb)}
 
 
+def follower(dc=0):
+    return _net(["X1 IN OUT OUT OPAMP_IDEAL"], dc), {"type": "flat", "k_pass_db": 0.0}
+
+
+def active_hp_inv(R1, R2, C, dc=0):
+    """Инвертирующий активный ФВЧ 1-го порядка (дифференциатор с последовательным R1):
+    R1 IN-N2, C1 N2-N1, R2 N1-OUT; H = -R2 sC / (1 + s R1 C): K = R2/R1, fc = 1/(2 pi R1 C)."""
+    return _net([f"R1 IN N2 {_v(R1)}", f"C1 N2 N1 {_v(C)}", f"R2 N1 OUT {_v(R2)}",
+                 "X1 0 N1 OUT OPAMP_IDEAL"], dc),         {"type": "HP", "k_pass_db": db(R2 / R1), "fc": 1 / (TWO_PI * R1 * C)}
+
+
+def rlc_parallel_bp(R, L, C, dc=0):
+    """R от входа к выходу, L и C параллельно от выхода на землю: полосовой, 0 дБ на f0,
+    Q = R sqrt(C/L)."""
+    return _net([f"R1 IN OUT {_v(R)}", f"C1 OUT 0 {_v(C)}", f"L1 OUT 0 {_v(L)}"], dc),         {"type": "BP", "k_pass_db": 0.0, "f0": 1 / (TWO_PI * math.sqrt(L * C)), "Q": R * math.sqrt(C / L)}
+
+
+def rc_ladder2(R1, C1, R2, C2, dc=0):
+    """Двухзвенная RC-лестница: R1 IN-N1, C1 N1-0, R2 N1-OUT, C2 OUT-0;
+    H = 1 / (1 + s (R1 C1 + R2 C2 + R1 C2) + s^2 R1 R2 C1 C2) - ФНЧ 2-го порядка, Q < 0,5."""
+    w0 = 1 / math.sqrt(R1 * R2 * C1 * C2)
+    Q = 1 / (w0 * (R1 * C1 + R2 * C2 + R1 * C2))
+    f0 = w0 / TWO_PI
+    return _net([f"R1 IN N1 {_v(R1)}", f"R2 N1 OUT {_v(R2)}", f"C1 N1 0 {_v(C1)}", f"C2 OUT 0 {_v(C2)}"], dc),         {"type": "LP", "k_pass_db": 0.0, "f0": f0, "Q": Q, "fc": fc_2nd_lp(f0, Q)}
+
+
 # имя -> (функция, уровень, величины класса для S4, величина-характерная частота)
 TOPOLOGIES = {
     "divider": (divider, "L1", ["type", "k_pass_db"], None),
@@ -152,6 +178,10 @@ TOPOLOGIES = {
     "sallen_key_lp": (sallen_key_lp, "L2", ["type", "k_pass_db", "f0", "Q", "fc"], "f0"),
     "sallen_key_hp": (sallen_key_hp, "L2", ["type", "k_pass_db", "f0", "Q", "fc"], "f0"),
     "mfb_bp": (mfb_bp, "L2", ["type", "k_pass_db", "f0", "Q"], "f0"),
+    "follower": (follower, "L2", ["type", "k_pass_db"], None),
+    "active_hp_inv": (active_hp_inv, "L2", ["type", "k_pass_db", "fc"], "fc"),
+    "rlc_parallel_bp": (rlc_parallel_bp, "L1", ["type", "k_pass_db", "f0", "Q"], "f0"),
+    "rc_ladder2": (rc_ladder2, "L1", ["type", "k_pass_db", "fc"], "fc"),
 }
 
 
