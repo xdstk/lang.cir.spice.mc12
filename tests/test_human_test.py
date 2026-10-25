@@ -45,6 +45,15 @@ class ImportAndLabels(Base):
         with self.assertRaises(ValueError):
             human_test.import_file(t, "Иванов")
 
+    def test_single_text_file_with_authors(self):
+        t = WORK / "all.txt"
+        t.write_text("# от руководителя и студентов\nA02: RC ФНЧ: R 1к, C 100н\nA03: делитель 10к и 4,7к\n"
+                     "без префикса - автор по умолчанию\nA02: RC ФНЧ: R 1к, C 100н\n", encoding="utf-8")
+        added = human_test.import_file(t, "A01")
+        self.assertEqual([(a["author"], a["prompt"]) for a in added],
+                         [("A02", "RC ФНЧ: R 1к, C 100н"), ("A03", "делитель 10к и 4,7к"),
+                          ("A01", "без префикса - автор по умолчанию")])
+
     def test_template_example_row_skipped(self):
         added = human_test.import_file(ROOT / "data" / "human_test" / "collect_template.csv", "A09")
         self.assertEqual(added, [])
@@ -67,6 +76,8 @@ class ImportAndLabels(Base):
         self.assertEqual((r["split"], r["level"], r["topology"]), ("human_test", "L2", "human:LP"))
         self.assertAlmostEqual(r["expected"]["fc"] / 1591.55, 1, delta=3e-3)
         self.assertEqual(human_test.reference("H0008", dict(lab, author="A01"))["split"], "human_dev")
+        # запросы, написанные Claude, - синтетика: в human_test не попадают
+        self.assertEqual(human_test.reference("H0009", dict(lab, author="C01"))["split"], "paraphrase")
 
 
 def mc12_available():

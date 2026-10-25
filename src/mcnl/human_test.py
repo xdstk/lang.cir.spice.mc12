@@ -36,6 +36,10 @@ RAW = DIR / "raw.jsonl"
 LABELS = DIR / "labels.md"
 CLASSES = {"A", "A1", "B", "out", "unclear", "?"}
 DEV_AUTHORS = {"A01"}  # автор работы знает шаблоны генератора: его запросы - dev, не тест
+# C01, C02, … - запросы, написанные Claude «по мотивам» человеческих: это синтетика, не человеческий тест;
+# отдельная выборка paraphrase (для v2 и отладки), в human_test не попадает
+SPLITS = ("human_dev", "human_test", "paraphrase")
+AUTHOR_RE = r"[AC]\d{2}"
 QUANTITIES = {"LP": ["type", "k_pass_db", "fc"], "HP": ["type", "k_pass_db", "fc"],
               "BP": ["type", "k_pass_db", "f0", "Q"], "BS": ["type", "k_pass_db", "f0", "Q"],
               "flat": ["type", "k_pass_db"]}
@@ -53,8 +57,8 @@ def read_raw():
 def import_file(path, author):
     """CSV со столбцом prompt (как collect_template.csv) или текст - по запросу в строке."""
     path = Path(path)
-    if not re.fullmatch(r"A\d{2}", author):
-        raise ValueError("код автора - A01, A02, …")
+    if not re.fullmatch(AUTHOR_RE, author):
+        raise ValueError("код автора - A01, A02, … (люди) или C01 (запросы Claude)")
     text = path.read_text(encoding="utf-8-sig")
     if path.suffix.lower() == ".csv":
         rows = list(csv.DictReader(text.splitlines()))
@@ -62,14 +66,17 @@ def import_file(path, author):
                    if "пример - удалить" not in (r.get("note") or "")]  # строка-образец из шаблона
         prompts = [p for p in prompts if p]
     else:
-        prompts = [l.strip() for l in text.splitlines() if l.strip()]
+        prompts = [l.strip() for l in text.splitlines() if l.strip() and not l.lstrip().startswith("#")]
     raw = read_raw()
     known = {(r["author"], r["prompt"]) for r in raw}
     added = []
     for p in prompts:
-        if (author, p) in known:
+        # в одном текстовом файле - запросы разных авторов: «A02: текст» относит строку к A02
+        m = re.match(r"^(" + AUTHOR_RE + r")\s*[:|]\s*(.+)$", p)
+        who, p = (m.group(1), m.group(2).strip()) if m else (author, p)
+        if (who, p) in known or any((a["author"], a["prompt"]) == (who, p) for a in added):
             continue
-        rec = {"id": f"H{len(raw) + len(added) + 1:04d}", "author": author, "prompt": p, "source": path.name}
+        rec = {"id": f"H{len(raw) + len(added) + 1:04d}", "author": who, "prompt": p, "source": path.name}
         added.append(rec)
     DIR.mkdir(parents=True, exist_ok=True)
     with open(RAW, "a", encoding="utf-8", newline="\n") as fh:
@@ -82,7 +89,7 @@ def import_file(path, author):
 def parse_labels(text):
     """labels.md -> {id: {author, prompt, class, netlist, note}}."""
     out = {}
-    for m in re.finditer(r"^## (H\d{4}) · (A\d{2})\n(.*?)(?=^## H\d{4} · |\Z)", text, re.S | re.M):
+    for m in re.finditer(r"^## (H\d{4}) · (" + AUTHOR_RE + r")\n(.*?)(?=^## H\d{4} · |\Z)", text, re.S | re.M):
         body = m.group(3)
         prompt = "\n".join(l[2:] if l.startswith("> ") else l[1:] for l in body.splitlines() if l.startswith(">"))
         cls = re.search(r"^class:\s*(\S+)", body, re.M)
@@ -143,7 +150,8 @@ def reference(hid, lab):
     q = QUANTITIES[m["type"]]
     n_op = sum(e["type"] == "OPAMP" for e in elems)
     return {"id": hid, "circuit_id": hashlib.sha256(netlist.encode()).hexdigest()[:16], "author": lab["author"],
-            "split": "human_dev" if lab["author"] in DEV_AUTHORS else "human_test", "task": lab["class"],
+            "split": ("paraphrase" if lab["author"].startswith("C") else
+                      "human_dev" if lab["author"] in DEV_AUTHORS else "human_test"), "task": lab["class"],
             "family": "human", "topology": f"human:{m['type']}", "level": "L1" if n_op == 0 else "L2" if n_op == 1 else "L3",
             "prompt": lab["prompt"], "netlist": netlist, "ir": canon.to_ir(elems), "f_char": f_char,
             "quantities": q, "expected": {k: m[k] for k in q}, "note": lab["note"]}
@@ -165,7 +173,7 @@ def build(outdir=None, workdir=None):
     outdir = Path(outdir or DIR / "v1")
     outdir.mkdir(parents=True, exist_ok=True)
     manifest = {"files": {}, "report": report}
-    for split in ("human_dev", "human_test"):
+    for split in SPLITS:
         recs = [r for r in admitted if r["admission"]["admitted"] and r["split"] == split]
         data = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in recs).encode("utf-8")
         (outdir / f"{split}.jsonl").write_bytes(data)
