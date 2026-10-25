@@ -63,6 +63,12 @@ def parse_doc(text):
                 entry["ok"] = False
             last = entry
             continue
+        m = re.match(r"^Error (.*?)'([^']+\.(?:CKT|CIR))'", line, re.I)
+        if m:  # «Error Bad format in loading file '...\X.CIR'.» - имя схемы внутри строки, а не в начале
+            last = res.setdefault((Path(m.group(2)).name.upper(), None), {"ok": True, "messages": []})
+            last["messages"].append(line.strip())
+            last["ok"] = False
+            continue
         m = re.match(r"^Command Line\s+(\S+\.(?:CKT|CIR))", line, re.I)
         if m:
             last = res.setdefault((PureWindowsPath(m.group(1)).name.upper(), None), {"ok": True, "messages": []})
