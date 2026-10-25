@@ -65,6 +65,30 @@ class Baseline(unittest.TestCase):
         self.assertEqual(tr.translate("rc фнч, r=1 кОм, c=100 нФ"), RC)
         self.assertEqual(tr.translate("нарисуй что-нибудь красивое"), "")
 
+    def test_aliases(self):
+        # синонимы названий и ролей из data/roles_ru.json (aliases)
+        tr = translators.load("baseline")
+        self.assertEqual(tr.translate("RC-фильтр низких частот: резистор 1 кОм, конденсатор 100 нФ"), RC)
+        out = tr.translate("инвертирующее включение ОУ: Rin=4,7к, Rf=47к, вход 1 В")
+        self.assertEqual(out, "V1 IN 0 DC 1\nR1 IN N1 4.7k\nR2 N1 OUT 47k\nX1 0 N1 OUT OPAMP_IDEAL\n")
+        self.assertIn("C1 N1 OUT 100n", tr.translate(
+            "последовательный колебательный контур: катушка 10 мГн, конденсатор 0,1 мкФ, резистор 100 Ом"))
+        self.assertIn("X1 N2 OUT OUT OPAMP_IDEAL", tr.translate(  # «–» в названии и «ё/е» нормализуются
+            "ФНЧ Саллена–Ки на повторителе: R1 10 кОм, R2 10 кОм, C1(ос) 22 нФ, C2(земля) 10 нФ"))
+
+    def test_span_used_once(self):
+        # «резистор обратной связи» не должен отдать номинал ещё и роли «резистор»/«R1»
+        out = translators.load("baseline").translate("интегратор на ОУ: резистор на входе 1к, "
+                                                      "резистор обратной связи 100к, конденсатор 10н")
+        self.assertEqual(out, "V1 IN 0 DC 0\nR1 IN N1 1k\nR2 N1 OUT 100k\nC1 N1 OUT 10n\nX1 0 N1 OUT OPAMP_IDEAL\n")
+
+    def test_aliases_belong_to_known_roles(self):
+        from mcnl import describe_ru
+        for topo, r in describe_ru.ROLES.items():
+            with self.subTest(topo=topo):
+                self.assertIn("aliases", r)
+                self.assertTrue(set(r["aliases"]["roles"]) <= set(r["roles"]))
+
     def test_role_inside_topology_name(self):
         # «интегратор с Rос: Rвх …» - название содержит обозначение роли Rос
         out = translators.load("baseline").translate("интегратор с Rос: Rвх 1.5к, Rос 150к, C 39н; сигнал на вх")
@@ -82,7 +106,7 @@ class App(unittest.TestCase):
     def test_unparsed_answer(self):
         rep = app.run("непонятно", translators.load("baseline"), outdir=ROOT / "out" / "test_app", mc12=False)
         self.assertNotIn("netlist", rep)
-        self.assertTrue(rep["messages"])
+        self.assertIn(app.INPUT_HINT, rep["messages"])
 
     def test_flat_circuit_has_no_fchar(self):
         rep = app.run(netlist="V1 IN 0 DC 5\nR1 IN OUT 10k\nR2 OUT 0 10k\n", outdir=ROOT / "out" / "test_app",

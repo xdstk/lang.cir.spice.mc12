@@ -45,41 +45,66 @@ def _source_dc(text):
     return float(m.group(1).replace(",", ".")) if m else 0.0
 
 
+def _norm(s):
+    """Нормализация для сравнения: регистр, «ё» -> «е», разные тире в названиях -> «-».
+    Замены посимвольные: позиции в нормализованном тексте совпадают с исходными."""
+    return s.lower().replace("ё", "е").replace("–", "-").replace("‑", "-")
+
+
+def _topology_names(r):
+    """(название, признак варианта с усилением) - основные, краткие, с усилением и синонимы."""
+    for key, gain in (("names", False), ("short_names", False), ("names_gain", True)):
+        for name in r.get(key, []):
+            yield name, gain
+    for name in r.get("aliases", {}).get("names", []):
+        yield name, False
+
+
 def _find_topology(text):
-    low = text.lower()
+    low = _norm(text)
     best = None
     for topo, r in describe_ru.ROLES.items():
-        for key, gain in (("names", False), ("short_names", False), ("names_gain", True)):
-            for name in r.get(key, []):
-                if name.lower() in low and (best is None or len(name) > len(best[1])):
-                    best = (topo, name, gain)
+        for name, gain in _topology_names(r):
+            if _norm(name) in low and (best is None or len(name) > len(best[1])):
+                best = (topo, name, gain)
     if best is None:
         return None, False, text
     # номиналы ищутся без названия: в «интегратор с Rос: Rвх 1.5к …» само название содержит роль Rос
-    i = low.index(best[1].lower())
+    i = low.index(_norm(best[1]))
     return best[0], best[2] or "с усилением" in low, text[:i] + text[i + len(best[1]):]
 
 
+def _role_phrases(r):
+    """(параметр, обозначение роли): полные фразы, краткие обозначения и синонимы."""
+    for param, phrase in r["roles"].items():
+        yield param, phrase
+    for param, phrase in r.get("short_roles", {}).items():
+        yield param, phrase
+    for param, phrases in r.get("aliases", {}).get("roles", {}).items():
+        for phrase in phrases:
+            yield param, phrase
+
+
 def _stage_params(text, topo):
-    """Номиналы звена по ролям: сначала полные фразы ролей, затем короткие обозначения."""
-    r = describe_ru.ROLES[topo]
-    params = {}
-    for full in (True, False):
-        roles = r["roles"] if full else r["short_roles"]
-        for param, phrase in sorted(roles.items(), key=lambda kv: -len(kv[1])):
-            if param in params:
+    """Номиналы звена по ролям. Обозначения - от длинных к коротким («резистор обратной связи» раньше
+    «резистор»); фрагмент текста, уже давший номинал одной роли, другой роли не отдаётся."""
+    low = _norm(text)
+    params, used = {}, []
+    # номинал - до разделителя ролей «, » / «;» / «]» / конца предложения; запятая внутри числа
+    # («2,2к») пробела после себя не имеет. Между ролью и номиналом: «—», «=», «:» или пробел
+    tail = r"(.+?)(?=,\s|;|\]|\.\s|\.$|$)"
+    sep = r"(?:\s*[—=:]\s*|\s+)"
+    for param, phrase in sorted(_role_phrases(describe_ru.ROLES[topo]), key=lambda pp: -len(pp[1])):
+        if param in params:
+            continue
+        for m in re.finditer(r"(?<![\w(])" + re.escape(_norm(phrase)) + sep + tail, low):
+            if any(m.start() < b and a < m.end() for a, b in used):
                 continue
-            # номинал - до разделителя ролей «, » / «;» / «]» / конца предложения; запятая внутри
-            # числа («2,2к») пробела после себя не имеет
-            tail = r"(.+?)(?=,\s|;|\]|\.\s|\.$|$)"
-            # минимальная общая терпимость: регистр не важен, между ролью и номиналом «—», «=», «:»
-            sep = r"\s*[—=:]\s*" if full else r"(?:\s*[=:]\s*|\s+)"
-            prefix = "" if full else r"(?<![\w(])"
-            m = re.search(prefix + re.escape(phrase) + sep + tail, text, re.IGNORECASE)
-            if m:
-                v = parse_value(m.group(1), param[0])
-                if v is not None:
-                    params[param] = v
+            v = parse_value(text[m.start(1):m.end(1)], param[0])
+            if v is not None:
+                params[param] = v
+                used.append((m.start(), m.end()))
+                break
     return params
 
 
