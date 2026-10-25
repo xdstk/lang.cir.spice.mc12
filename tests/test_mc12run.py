@@ -81,6 +81,14 @@ class ParseBatchLog(unittest.TestCase):
     def test_command_line_error(self):
         self.assertFalse(self.log[("RC.CKT", None)]["ok"])
 
+    def test_load_error_names_its_own_file(self):
+        # строка без имени схемы в начале не должна приписываться предыдущей схеме
+        log = mc12run.parse_doc("P06.CIR   /A      2  509\n"
+                                "Error Bad format in loading file 'C:\\WORK\\P07_INVERTING.CIR'.\n")
+        self.assertTrue(log[("P06.CIR", "A")]["ok"])
+        self.assertEqual(log[("P06.CIR", "A")]["messages"], [])
+        self.assertFalse(log[("P07_INVERTING.CIR", None)]["ok"])
+
     def test_analyses_in(self):
         self.assertEqual(mc12run.analyses_in((DATA / "rc_probe.ckt").read_text()), ["A", "T"])
 

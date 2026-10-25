@@ -46,6 +46,8 @@ DEVICES = {
     "Subckt": ("X", "NAME", None),
 }
 IGNORED = {"Ground"}
+# идеальный ОУ канона (docs/eval_spec.md, раздел 4; то же, что bench.OPAMP_DEF)
+OPAMP_IDEAL_DEF = ".SUBCKT OPAMP_IDEAL PLUS MINUS OUT\nE1 OUT 0 PLUS MINUS 1E6\n.ENDS OPAMP_IDEAL"
 # Tie (и "Output Port" с тем же Definition): соединитель по имени. В руководствах не описан;
 # по примерам DATA все Tie с одинаковым PART образуют один узел с этим именем.
 CONNECTORS = {"Tie"}
@@ -433,6 +435,10 @@ def convert(text, title="circuit", lib_dir="default"):
             lines.append(f"{name} {nodes[0]} {nodes[1]} VALUE = {{{val.strip()}}}")
             if c["attrs"].get("FREQ", "").strip():
                 warn.append(f"{part}: атрибут FREQ ({c['attrs']['FREQ']}) не переносится")
+        elif definition == "Opamp" and val.upper() == "OPAMP_IDEAL":
+            # схема, построенная spice2cir: идеальный ОУ канона (3 вывода), питание не подключено
+            subckts["OPAMP_IDEAL"] = OPAMP_IDEAL_DEF
+            lines.append(f"{name} {nodes[0]} {nodes[1]} {nodes[3]} OPAMP_IDEAL")
         elif definition == "Opamp":
             p = opa.get(val.upper(), {})
             lev = p.get("LEVEL", "1")
