@@ -22,6 +22,9 @@
 | `src/mcnl/sampler.py`, `cascade.py`, `describe_ru.py`, `generate.py` | генератор датасета: номиналы, каскады L3, русские запросы с обратным разбором, сборка выборок |
 | `data/dataset/v1/` | датасет: 2950 записей, test заморожен (SHA-256 в README датасета) |
 | `src/mcnl/spice2cir.py`, `data/cir_templates.cir` | нетлист → схема MC12 (.CIR) с метками узлов, AC-анализом и графиком |
+| `src/mcnl/app.py` | программа: запрос → переводчик → проверка и расчёт в MC12 → .CIR → MC12 (docs/program.md) |
+| `src/mcnl/translators/` | сменные переводчики («батарейки»): baseline на правилах, заглушка echo; сюда встают обученные модели |
+| `src/mcnl/evaluate.py` | оценка любого переводчика на выборке датасета (S0–S4, интервалы Уилсона) |
 | `src/mcnl/make_test_cir.py` | генерация тестового .CIR (RC-фильтр; заготовка для spice2cir) |
 | `src/mcnl/audit_netlists.py` | статический аудит пар «подпись - нетлист» (Masala-CHAI) |
 | `mc_list.bat`, `run_mc12.cmd` | шаблоны пакетного запуска MC12 |
@@ -34,6 +37,8 @@ python src/mcnl/cir2spice.py путь\к\DATA --out out_ckt --report report.json
 python src/mcnl/netlist_compare.py эталон.ckt проверяемый.ckt
 python src/mcnl/mc12run.py out\схема.ckt          (файлы - в обычной папке, не в AppData)
 python src/mcnl/mcout.py out\схема.ANO
+python src/mcnl/app.py "RC ФНЧ: R 1к, C 100н; сигнал на вх" --open
+python src/mcnl/evaluate.py --model baseline --split test
 python -m unittest discover -s tests
 ```
 
