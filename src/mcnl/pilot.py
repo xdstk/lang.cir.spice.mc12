@@ -43,6 +43,10 @@ PILOT = [
     ("p13_sk_hp_gain", "sallen_key_hp", {"R1": 18e3, "R2": 15e3, "C1": 1e-9, "C2": 1e-9, "Ra": 10e3, "Rb": 10e3}),
     ("p14_sk_hp_unity", "sallen_key_hp", {"R1": 12e3, "R2": 24e3, "C1": 2.2e-9, "C2": 2.2e-9}),
     ("p15_mfb_bp", "mfb_bp", {"R1": 10e3, "R2": 1e3, "R3": 100e3, "Ca": 10e-9, "Cb": 10e-9}),
+    ("p16_follower", "follower", {"dc": 2}),
+    ("p17_active_hp", "active_hp_inv", {"R1": 2.2e3, "R2": 22e3, "C": 100e-9}),
+    ("p18_rlc_parallel", "rlc_parallel_bp", {"R": 1e3, "L": 1e-3, "C": 10e-9}),
+    ("p19_rc_ladder", "rc_ladder2", {"R1": 1e3, "C1": 100e-9, "R2": 10e3, "C2": 10e-9}),
 ]
 
 
