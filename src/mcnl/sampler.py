@@ -16,7 +16,7 @@ except ImportError:  # запуск как скрипта
     import formulas
 
 RANGES = {"R": (100.0, 1e6), "C": (100e-12, 10e-6), "L": (1e-6, 100e-3)}
-RANGES_GEN = dict(RANGES, R=(1.1e6, 10e6))  # gen_range: R вне диапазона обучения
+RANGES_GEN = dict(RANGES, R=(100.0, 10e6))  # gen_range: R до 10 МОм; генератор берёт схемы, где хотя бы один R > 1 МОм
 F_RANGE = (10.0, 1e6)
 GAIN_DB = (-40.0, 60.0)       # |K| от 0,01 до 1000
 Q_RANGE = (0.5, 10.0)

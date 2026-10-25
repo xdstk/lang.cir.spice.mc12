@@ -25,6 +25,13 @@ except ImportError:  # запуск как скрипта
 ROOT = Path(__file__).resolve().parents[2]
 REL_ADMIT = {"fc": 1e-3, "f0": 1e-3, "f_u": 1e-3, "Q": 1e-2}
 K_ADMIT = 1e-3  # для k_pass_db / k_dc_db: относительная разница в разах
+# MC12 пишет 4 значащие цифры: при |K| >= 10 дБ последний знак - 0,01 дБ, и у звена 1-го порядка
+# (наклон на fc - 10 дБ/декаду) fc определяется лишь с точностью около +-0,2%. Поэтому сравнение
+# MC12 с формулой / mna.py для частот - 0,3%; формула против mna.py (полная точность) - 0,1%.
+REL_ADMIT_MC12 = dict(REL_ADMIT, fc=3e-3, f0=3e-3, f_u=3e-3)
+# уровень: округление MC12 до 0,01 дБ (до 0,058%) плюс разница формулы (идеальный ОУ) и обвязки
+# (ОУ с усилением 1e6; MFB с R3 = 680 кОм - 0,038%) - в сумме бывает чуть больше 0,1%
+K_ADMIT_MC12 = 2e-3
 
 # номиналы: R - E24, C и L - E12; характерные частоты 10 Гц - 1 МГц (eval_spec, раздел 1)
 PILOT = [
@@ -50,8 +57,9 @@ PILOT = [
 ]
 
 
-def compare(expected, measured, quantities):
+def compare(expected, measured, quantities, rel=None, k_tol=K_ADMIT):
     """-> (в допуске, {величина: [формула, измерено, отклонение, в допуске]})."""
+    rel = rel or REL_ADMIT
     detail = {}
     for q in quantities:
         a, b = expected.get(q), measured.get(q)
@@ -61,10 +69,10 @@ def compare(expected, measured, quantities):
             ok, dev = False, None
         elif q in ("k_pass_db", "k_dc_db"):
             dev = 10 ** ((b - a) / 20) - 1
-            ok = abs(dev) <= K_ADMIT
+            ok = abs(dev) <= k_tol
         else:
             dev = (b - a) / a
-            ok = abs(dev) <= REL_ADMIT[q]
+            ok = abs(dev) <= rel[q]
         detail[q] = [a, b, dev, ok]
     return all(v[3] for v in detail.values()), detail
 
@@ -94,7 +102,8 @@ def admit(refs, workdir, timeout=1800):
         ok_mna, adm["formula_vs_mna"] = compare(r["expected"], mna_measure(r), r["quantities"])
         if run["ok"]:
             r["measured"] = measure.from_output(run["output"])
-            ok_mc, adm["formula_vs_mc12"] = compare(r["expected"], r["measured"], r["quantities"])
+            ok_mc, adm["formula_vs_mc12"] = compare(r["expected"], r["measured"], r["quantities"], REL_ADMIT_MC12,
+                                                    K_ADMIT_MC12)
         else:
             ok_mc = False
         adm["formula_ok"] = ok_mna

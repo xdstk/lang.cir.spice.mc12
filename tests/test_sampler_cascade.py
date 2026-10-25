@@ -47,8 +47,10 @@ class Sampler(unittest.TestCase):
                         self.assertTrue(0.5 <= ref["expected"]["Q"] <= 10)
 
     def test_gen_range(self):
-        ref, _ = sampler.sample("rc_lp", random.Random(3), sampler.RANGES_GEN)
-        self.assertGreater(ref["params"]["R"], 1e6)
+        rng = random.Random(3)
+        refs = [sampler.sample("rc_lp", rng, sampler.RANGES_GEN)[0] for _ in range(40)]
+        self.assertTrue(any(r["params"]["R"] > 1e6 for r in refs))
+        self.assertTrue(all(r["params"]["R"] <= 10e6 * 1.001 for r in refs))
 
     def test_rejects_unstable_sallen_key(self):
         ref = formulas.reference("sallen_key_lp", {"R1": 10e3, "R2": 10e3, "C1": 10e-9, "C2": 10e-9,
