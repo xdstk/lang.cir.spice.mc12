@@ -86,6 +86,15 @@ class Analytic(unittest.TestCase):
             self.assertRel(m["Q"], Q, tol=5e-3, msg=Q)
             self.assertAlmostEqual(m["k_pass_db"], 20 * math.log10(K), delta=0.01)
 
+    def test_asymmetric_band(self):
+        # ФВЧ 2-го порядка на 100 Гц и ФНЧ 1-го порядка на 10 кГц: края затухают на ~80 и ~40 дБ,
+        # правило «разница краёв > 10 дБ» дало бы HP - полосовой должен определяться раньше
+        wh, wl = 2 * math.pi * 100, 2 * math.pi * 1e4
+        H = lambda s: (s * s / (s * s + s * wh / 0.7071 + wh * wh)) / (1 + s / wl)
+        m = measure.measure(*response(H, 1e3))
+        self.assertEqual(m["type"], "BP")
+        self.assertIsNotNone(m["Q"])
+
     def test_bs(self):
         f0, Q = 50.0, 3.0
         w0 = 2 * math.pi * f0

@@ -81,9 +81,12 @@ def mna_measure(ref):
     return measure.measure(*mna.sweep(canon.parse_netlist(ref["netlist"])[0], lo, hi, per_decade=bench.POINTS_PER_DECADE))
 
 
-def build_pilot(workdir, items=PILOT):
-    refs = [formulas.reference(topo, params, rid) for rid, topo, params in items]
-    runs = bench.run([(r["id"], canon.parse_netlist(r["netlist"])[0], r["f_char"]) for r in refs], workdir)
+def admit(refs, workdir, timeout=1800):
+    """Допуск готовых эталонов (раздел 9) одним прогоном MC12. Дописывает в каждый эталон
+    measured (MC12) и admission. Для эталонов, у которых expected уже из mna.py (каскады L3),
+    проверка «формула против mna» тривиальна, существенна «mna против MC12»."""
+    runs = bench.run([(r["id"], canon.parse_netlist(r["netlist"])[0], r["f_char"]) for r in refs], workdir,
+                     timeout=timeout)
     for r in refs:
         run = runs[r["id"]]
         adm = {"canonical_roundtrip": roundtrip_ok(r["netlist"]), "mc12_run": run["ok"],
@@ -98,6 +101,10 @@ def build_pilot(workdir, items=PILOT):
         adm["admitted"] = adm["canonical_roundtrip"] and run["ok"] and ok_mna and ok_mc
         r["admission"] = adm
     return refs
+
+
+def build_pilot(workdir, items=PILOT):
+    return admit([formulas.reference(topo, params, rid) for rid, topo, params in items], workdir)
 
 
 def main(argv):
