@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""Программа: запрос на русском -> нетлист -> проверка и расчёт в MC12 -> схема .CIR -> MC12.
+
+Запуск:  python src/mcnl/app.py "RC ФНЧ: R 1к, C 100н; сигнал на вх" [--model baseline] [--open]
+         python src/mcnl/app.py --netlist схема.txt [--open]          (без переводчика)
+         --out папка  (по умолчанию out/app; должна быть обычной папкой - MC12 не видит AppData пакета)
+
+Переводчик - сменная «батарейка» (mcnl.translators): --model baseline | echo | модуль:Класс | файл.py:Класс.
+Шаги: перевод -> разбор и канон (S0) -> оценка характерной частоты узловым расчётом (эталона у
+пользователя нет) -> расчёт в MC12 через обвязку (S1) и измерения -> .CIR (spice2cir) -> открыть в MC12.
+"""
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+if __package__ in (None, ""):  # запуск как скрипта: python src/mcnl/app.py
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from mcnl import bench, canon, mc12run, measure, mna, score, spice2cir, translators  # noqa: E402
+
+ROOT = Path(__file__).resolve().parents[2]
+WIDE = (1.0, 1e8)  # широкая развёртка для оценки характерной частоты без эталона
+
+
+def characteristic_frequency(elems):
+    """Оценка f_хар узловым расчётом на широкой сетке: fc (LP/HP), f0 (BP/BS) или None (flat)."""
+    try:
+        m = measure.measure(*mna.sweep(elems, *WIDE, per_decade=50))
+    except ZeroDivisionError:
+        return None
+    return m.get("fc") or m.get("f0") or m.get("f_u")
+
+
+def run(prompt=None, translator=None, netlist=None, outdir=None, name="circuit", open_mc12=False, mc12=True):
+    """-> отчёт {prompt, model, output, parse_errors, netlist, f_char, run, measured, cir, messages}."""
+    outdir = Path(outdir or ROOT / "out" / "app")
+    outdir.mkdir(parents=True, exist_ok=True)
+    rep = {"prompt": prompt, "model": getattr(translator, "name", None), "messages": []}
+    if netlist is None:
+        out = translator.translate(prompt)
+        fmt = getattr(translator, "output_format", "netlist")
+    else:
+        out, fmt = netlist, "netlist"
+    rep["output"] = out
+    elems, errs = score.parse_output(out, fmt)
+    rep["parse_errors"] = errs
+    if elems is None:
+        rep["messages"].append("ответ переводчика не разобран (S0): схема не построена")
+        return rep
+    elems = canon.canonicalize(elems)
+    rep["netlist"] = canon.to_netlist(elems)
+    rep["f_char"] = characteristic_frequency(elems)
+    if mc12:
+        res = bench.run([(name, elems, rep["f_char"])], outdir)[name]
+        rep["run"] = {"ok": res["ok"], "messages": res["messages"], "output": res["output"]}
+        if res["ok"]:
+            rep["measured"] = measure.from_output(res["output"])
+        else:
+            rep["messages"].append("MC12 не выполнил схему (S1)")
+    cir = outdir / f"{name}.cir"
+    try:
+        spice2cir.write(cir, spice2cir.build(rep["netlist"], rep["f_char"], name))
+        rep["cir"] = str(cir)
+    except (ValueError, AssertionError) as err:
+        rep["messages"].append(f".CIR не построен: {err}")
+    if open_mc12 and rep.get("cir"):
+        exe = mc12run.find_exe()
+        subprocess.Popen([exe, rep["cir"]], cwd=str(Path(exe).parent))
+        rep["messages"].append(f"схема открыта в MC12: {rep['cir']}")
+    return rep
+
+
+def main(argv):
+    def opt(key, default=None):
+        return argv[argv.index(key) + 1] if key in argv else default
+    model = opt("--model", "baseline")
+    netlist_file = opt("--netlist")
+    skip = {argv.index(k) + i for k in ("--model", "--netlist", "--out", "--name") if k in argv for i in (0, 1)}
+    words = [a for i, a in enumerate(argv[1:], 1) if i not in skip and not a.startswith("--")]
+    prompt = " ".join(words) or None
+    netlist = Path(netlist_file).read_text(encoding="utf-8") if netlist_file else None
+    if prompt is None and netlist is None:
+        sys.exit(__doc__)
+    tr = None if netlist else translators.load(model)
+    rep = run(prompt, tr, netlist, opt("--out"), opt("--name", "circuit"), "--open" in argv, "--no-mc12" not in argv)
+    sys.stdout.reconfigure(encoding="utf-8")
+    print(json.dumps(rep, ensure_ascii=False, indent=1))
+
+
+if __name__ == "__main__":
+    main(sys.argv)
