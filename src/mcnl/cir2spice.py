@@ -38,10 +38,16 @@ DEVICES = {
     "NMOS": ("M", "MODEL", ["Drain", "Gate", "Source", "Bulk"]),
     "PMOS": ("M", "MODEL", ["Drain", "Gate", "Source", "Bulk"]),
     "Pulse source": ("V", "MODEL", ["Plus", "Minus"]),
+    "Sine source": ("V", "MODEL", ["Plus", "Minus"]),
+    "S": ("S", "MODEL", ["Plus Output", "Minus Output", "Plus Control", "Minus Control"]),
+    "NFV": ("E", "VALUE", ["Plus", "Minus"]),
     "Opamp": ("X", "MODEL", ["Plus input", "Minus input", "VEE", "Output", "VCC"]),
     "Subckt": ("X", "NAME", None),
 }
 IGNORED = {"Ground"}
+# Tie (и "Output Port" с тем же Definition): соединитель по имени. В руководствах не описан;
+# по примерам DATA все Tie с одинаковым PART образуют один узел с этим именем.
+CONNECTORS = {"Tie"}
 # другие имена тех же выводов в compdef: в примерах DATA MC12 вывод подложки MOSFET - "Body"
 PIN_ALIASES = {"Bulk": ["Body"]}
 
@@ -122,6 +128,10 @@ def parse_cir(text):
                     on = v.split(",")[-1].strip()
                 elif k == "V":
                     val = v
+                elif k == "ONV":  # старый формат: ONV=x,y,ИМЯ,ЗНАЧЕНИЕ (в значении бывают запятые)
+                    parts = v.split(",", 3)
+                    if len(parts) == 4:
+                        on, val = parts[2].strip(), parts[3]
             if owner is not None and on:
                 owner["attrs"][on] = val if val is not None else ""
         elif n == "Wire":
@@ -138,10 +148,16 @@ def parse_cir(text):
             gtexts.append({"text": t, "pos": to_grid(L)})
             owner = None
         elif n == "Text Area":
+            # новый формат: строки Text=...; старый: служебные ключи, Len=N, затем сырой текст
+            raw = False
             for l in L:
                 k, v = kv(l)
-                if k == "Text":
+                if raw:
+                    textlines.append(l)
+                elif k == "Text":
                     textlines.append(v)
+                elif k == "Len":
+                    raw = True
             owner = None
         elif n == "Limits":
             limits.append(dict(kv(l) for l in L))
@@ -225,16 +241,25 @@ def convert(text, title="circuit"):
     node_points = {key(a) for w in wires for a in w} | {p for _, _, p in pins_of}
     on_wire = lambda p: p in node_points or any(on_segment(p, a, b) for a, b in wires)
     names, comments = {}, []
-    by_label = {}
+    by_label = {}  # имя узла без учёта регистра -> точки
     for lab, p in label_pts:
         if on_wire(p):
-            by_label.setdefault(lab, []).append(p)
+            by_label.setdefault(lab.upper(), []).append(p)
+    label_case = {lab.upper(): lab for lab, _ in label_pts}
+    for c, _, p in pins_of:
+        if compdefs[c["name"]].get("definition") in CONNECTORS:
+            lab = c["attrs"].get("PART", "").strip()
+            if not lab:
+                errors.append(f"{c['name']} без имени (PART): соединение неизвестно")
+                continue
+            by_label.setdefault(lab.upper(), []).append(p)
+            label_case.setdefault(lab.upper(), lab)
     for lab, pts in by_label.items():
         for p in pts[1:]:
             dsu.union(pts[0], p)
     for g in gtexts:
         t = g["text"]
-        if len(t) == 1 and t[0].strip() in by_label:
+        if len(t) == 1 and t[0].strip().upper() in by_label:
             continue
         if t and t[0].startswith("."):
             textlines.extend(t)
@@ -243,7 +268,7 @@ def convert(text, title="circuit"):
     # земля
     ground_roots = {dsu.find(p) for c, _, p in pins_of if c.get("name") == "Ground"}
     for lab, pts in by_label.items():
-        names[dsu.find(pts[0])] = re.sub(r"\s+", "_", lab)
+        names[dsu.find(pts[0])] = re.sub(r"\s+", "_", label_case[lab])
     counter = [0]
 
     def node(pt):
@@ -257,11 +282,11 @@ def convert(text, title="circuit"):
 
     # модели из текстовой области
     models_text = "\n".join(textlines)
-    pul = {}
-    opa = {}
-    for m in re.finditer(r"\.MODEL\s+(\S+)\s+(PUL|OPA)\s*\(([^)]*)\)", models_text, re.I):
+    sch_models = {"PUL": {}, "OPA": {}, "SIN": {}}  # модели, у которых нет SPICE-синтаксиса
+    for m in re.finditer(r"\.MODEL\s+(\S+)\s+(PUL|OPA|SIN)\s*\(([^)]*)\)", models_text, re.I):
         params = dict((k.upper(), v) for k, v in re.findall(r"(\w+)\s*=\s*([^\s)]+)", m.group(3)))
-        (pul if m.group(2).upper() == "PUL" else opa)[m.group(1).upper()] = params
+        sch_models[m.group(2).upper()][m.group(1).upper()] = params
+    pul, opa, sin = sch_models["PUL"], sch_models["OPA"], sch_models["SIN"]
 
     lines, subckts = [f"* {title}  (converted from Micro-Cap .CIR by cir2spice prototype)"], {}
     for cm in comments:
@@ -272,7 +297,7 @@ def convert(text, title="circuit"):
     for c in comps:
         cname = c.get("name")
         d = compdefs.get(cname)
-        if d is None or cname in IGNORED:
+        if d is None or cname in IGNORED or d.get("definition") in CONNECTORS:
             continue
         definition = d.get("definition", "")
         dev = DEVICES.get(definition)
@@ -299,8 +324,31 @@ def convert(text, title="circuit"):
             f = lambda k, dflt: p.get(k, dflt)
             t = [f("P1", "100n"), f("P2", "110n"), f("P3", "500n"), f("P4", "510n"), f("P5", "1u")]
             tv = [spice_num(x) for x in t]
+            # Pulse и Sine source дают в AC-анализе фиксированные 1 В (UG12 с. 100, RM12 с. 220)
             lines.append(f"{name} {nodes[0]} {nodes[1]} PULSE({f('VZERO','0')} {f('VONE','5')} {t[0]} "
-                         f"{fmt(tv[1]-tv[0])} {fmt(tv[3]-tv[2])} {fmt(tv[2]-tv[1])} {t[4]})")
+                         f"{fmt(tv[1]-tv[0])} {fmt(tv[3]-tv[2])} {fmt(tv[2]-tv[1])} {t[4]}) AC 1")
+        elif definition == "Sine source":
+            # RM12 с. 745: V = A*exp(-T/TAU)*sin(2*pi*F*TIME + PH) + DC, T = TIME mod RP, PH в радианах
+            p = sin.get(val.upper())
+            if p is None:
+                errors.append(f"{part}: нет .MODEL {val} SIN")
+                continue
+            f = lambda k, dflt: p.get(k, dflt)
+            tau, rp = spice_num(f("TAU", "0")), spice_num(f("RP", "0"))
+            theta = fmt(1 / tau) if tau else "0"
+            if tau and rp:
+                warn.append(f"{part}: SIN RP={f('RP', '0')} (повтор затухания) в SPICE SIN не выражается, опущен")
+            phase = fmt(math.degrees(spice_num(f("PH", "0"))))
+            lines.append(f"{name} {nodes[0]} {nodes[1]} SIN({f('DC', '0')} {f('A', '1')} {f('F', '1E6')} 0 "
+                         f"{theta} {phase}) AC 1")
+        elif definition == "NFV":
+            # RM12 с. 562: в SPICE-файле MC12 формула задаётся как E<name> + - VALUE = {expr}
+            if not val.strip():
+                errors.append(f"{part}: пустая формула NFV")
+                continue
+            lines.append(f"{name} {nodes[0]} {nodes[1]} VALUE = {{{val.strip()}}}")
+            if c["attrs"].get("FREQ", "").strip():
+                warn.append(f"{part}: атрибут FREQ ({c['attrs']['FREQ']}) не переносится")
         elif definition == "Opamp":
             p = opa.get(val.upper(), {})
             lev = p.get("LEVEL", "1")
@@ -317,11 +365,14 @@ def convert(text, title="circuit"):
             warn.append(f"{part}: подсхема {val} не включена; MC12 найдёт её через неявный "
                         f".LIB NOM.LIB, другой симулятор - нет")
         else:
+            if letter in "RCL" and not val.strip():
+                errors.append(f"{part}: нет значения {vattr}")
+                continue
             model = c["attrs"].get("MODEL", "") if vattr != "MODEL" else ""
             lines.append(" ".join(x for x in [name, *nodes, model, val] if x))
-    # текстовая область без моделей PUL/OPA (они преобразованы)
+    # текстовая область без моделей PUL/OPA/SIN (они преобразованы)
     for tl in textlines:
-        if re.match(r"\s*\.MODEL\s+\S+\s+(PUL|OPA)\b", tl, re.I):
+        if re.match(r"\s*\.MODEL\s+\S+\s+(PUL|OPA|SIN)\b", tl, re.I):
             lines.append("* (converted above) " + tl)
         elif tl.strip():
             lines.append(tl)
