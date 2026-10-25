@@ -18,6 +18,7 @@
 """
 import json
 import math
+import os
 import re
 import sys
 from pathlib import Path
@@ -209,7 +210,81 @@ def key(pt):
 
 
 # ---------------------------------------------------------------- конвертация
-def convert(text, title="circuit"):
+SUBCKT_RE = re.compile(r"^[ \t]*\.SUBCKT[ \t]+(\S+)([^\n]*(?:\n[ \t]*\+[^\n]*)*)", re.I | re.M)
+
+
+def subckt_nodes(text):
+    """{ИМЯ: [[узлы], ...]} для всех .SUBCKT в тексте; узлы - до PARAMS:/TEXT:/OPTIONAL:."""
+    found = {}
+    for m in SUBCKT_RE.finditer(text):
+        nodes = []
+        for t in m.group(2).replace("\n", " ").replace("+", " ").split():
+            if t.upper().rstrip(":") in ("PARAMS", "TEXT", "OPTIONAL") or "=" in t or t.startswith(";"):
+                break
+            nodes.append(t)
+        found.setdefault(m.group(1).upper(), []).append(nodes)
+    return found
+
+
+_LIB_INDEX = {}
+
+
+def library_index(lib_dir):
+    """Индекс .SUBCKT библиотеки MC12 в порядке поиска: файлы из NOM.LIB (рекурсивно), затем остальные .lib.
+    MC12 ищет подсхему схемы в тексте, затем через неявный .LIB NOM.LIB (RM12 с. 748)."""
+    lib_dir = Path(lib_dir)
+    if lib_dir in _LIB_INDEX:
+        return _LIB_INDEX[lib_dir]
+    order, seen = [], set()
+
+    def visit(name):
+        p = lib_dir / name
+        if p.name.lower() in seen or not p.is_file():
+            return
+        seen.add(p.name.lower())
+        order.append(p)
+        if p.suffix.lower() == ".lib":
+            for inc in re.findall(r'^\s*\.LIB\s+"?([^"\s]+)"?', p.read_text("cp1251", "replace"), re.I | re.M):
+                visit(inc)
+
+    visit("NOM.LIB")
+    for p in sorted(lib_dir.glob("*.lib")):
+        visit(p.name)
+    index = {}
+    for p in order:
+        for k, v in subckt_nodes(p.read_text("cp1251", "replace")).items():
+            index.setdefault(k, []).extend(v)
+    _LIB_INDEX[lib_dir] = index
+    return index
+
+
+def default_lib_dir():
+    d = Path(os.environ.get("MC12_LIBRARY", r"C:\MC12\LIBRARY"))
+    return d if d.is_dir() else None
+
+
+def subckt_pin_order(d, subname, models_text, warn, part, lib_dir):
+    """Порядок выводов в вызове X: узлы вызова идут в порядке оператора .SUBCKT (RM12 с. 748),
+    а выводы в compdef названы узлами подсхемы (RM12 с. 749). Порядок выводов в compdef бывает
+    другим: у PWMCM (power456.lib) он 3,4,6,5,2,1 при .SUBCKT PWMCM 1 2 3 4 5 6."""
+    pins = [p[0] for p in d["pins"]]
+    by_up = {p.upper(): p for p in pins}
+    candidates = subckt_nodes(models_text).get(subname.upper(), [])
+    if lib_dir:
+        candidates = candidates + library_index(lib_dir).get(subname.upper(), [])
+    for nodes in candidates:
+        if sorted(n.upper() for n in nodes) == sorted(by_up):
+            return [by_up[n.upper()] for n in nodes]
+    warn.append(f"{part}: .SUBCKT {subname} с выводами {pins} не найден ни в схеме, ни в библиотеке; "
+                f"выводы в порядке compdef (может не совпасть с MC12)")
+    return pins
+
+
+def convert(text, title="circuit", lib_dir="default"):
+    """lib_dir: каталог библиотеки MC12 для порядка выводов подсхем; "default" - MC12_LIBRARY
+    или C:\\MC12\\LIBRARY, если есть; None - не искать."""
+    if lib_dir == "default":
+        lib_dir = default_lib_dir()
     compdefs, comps, wires, gtexts, textlines, limits, waves = parse_cir(text)
     warn, errors = [], []
     dsu = DSU()
@@ -307,7 +382,8 @@ def convert(text, title="circuit"):
             continue
         letter, vattr, order = dev
         pmap = pins_by_comp.get(id(c), {})
-        order = order or [p[0] for p in d["pins"]]
+        if order is None:
+            order = subckt_pin_order(d, c["attrs"].get(vattr, ""), models_text, warn, part, lib_dir)
         order = [next((a for a in PIN_ALIASES.get(p, []) if a in pmap and p not in pmap), p) for p in order]
         try:
             nodes = [node(pmap[p]) for p in order]
@@ -325,7 +401,8 @@ def convert(text, title="circuit"):
             t = [f("P1", "100n"), f("P2", "110n"), f("P3", "500n"), f("P4", "510n"), f("P5", "1u")]
             tv = [spice_num(x) for x in t]
             # Pulse и Sine source дают в AC-анализе фиксированные 1 В (UG12 с. 100, RM12 с. 220)
-            lines.append(f"{name} {nodes[0]} {nodes[1]} PULSE({f('VZERO','0')} {f('VONE','5')} {t[0]} "
+            # DC = VZERO, как пишет File > Translate самого MC12
+            lines.append(f"{name} {nodes[0]} {nodes[1]} DC {f('VZERO','0')} PULSE({f('VZERO','0')} {f('VONE','5')} {t[0]} "
                          f"{fmt(tv[1]-tv[0])} {fmt(tv[3]-tv[2])} {fmt(tv[2]-tv[1])} {t[4]}) AC 1")
         elif definition == "Sine source":
             # RM12 с. 745: V = A*exp(-T/TAU)*sin(2*pi*F*TIME + PH) + DC, T = TIME mod RP, PH в радианах
@@ -339,7 +416,13 @@ def convert(text, title="circuit"):
             if tau and rp:
                 warn.append(f"{part}: SIN RP={f('RP', '0')} (повтор затухания) в SPICE SIN не выражается, опущен")
             phase = fmt(math.degrees(spice_num(f("PH", "0"))))
-            lines.append(f"{name} {nodes[0]} {nodes[1]} SIN({f('DC', '0')} {f('A', '1')} {f('F', '1E6')} 0 "
+            # RS (по умолчанию 1 мОм) - последовательный резистор со стороны плюса через внутренний
+            # узел, как в выводе File > Translate самого MC12 (V1 INTERIOR 0 SIN(...); RV1 1 INTERIOR RS)
+            rs, plus = f("RS", "0.001"), nodes[0]
+            if spice_num(rs):
+                plus = f"{name}_RS"
+                lines.append(f"R{name} {nodes[0]} {plus} {rs}")
+            lines.append(f"{name} {plus} {nodes[1]} SIN({f('DC', '0')} {f('A', '1')} {f('F', '1E6')} 0 "
                          f"{theta} {phase}) AC 1")
         elif definition == "NFV":
             # RM12 с. 562: в SPICE-файле MC12 формула задаётся как E<name> + - VALUE = {expr}
@@ -353,12 +436,16 @@ def convert(text, title="circuit"):
             p = opa.get(val.upper(), {})
             lev = p.get("LEVEL", "1")
             sub = f"OPA_{val.upper()}_L1EQ"
-            a, rout = p.get("A", "2E5"), p.get("ROUTDC", "125")
+            # RM12 с. 728 (умолчания), с. 732: R = ROUTAC+ROUTDC, GM = A/R; RIN и резисторы питания -
+            # как в подсхеме уровня 1, которую выдаёт File > Translate самого MC12
+            a = spice_num(p.get("A", "2E5"))
+            rout = spice_num(p.get("ROUTAC", "75")) + spice_num(p.get("ROUTDC", "125"))
             subckts[sub] = (f".SUBCKT {sub} INP INM VEE OUT VCC\n"
-                            f"* level-1 equivalent (VCCS + Rout), see MC12 Reference Manual, OPAMP\n"
-                            f"G1 0 OUT INP INM {{{a}/{rout}}}\nROUT OUT 0 {rout}\n.ENDS {sub}")
+                            f"RSUPPLUS VCC 0 1\nRSUPMIN VEE 0 1\nROUT OUT 0 {fmt(rout)}\n"
+                            f"GOUT 0 OUT INP INM {fmt(a / rout)}\nRIN INP INM 1G\n.ENDS {sub}")
             if lev != "1":
-                warn.append(f"{part}: OPAMP LEVEL={lev} заменён эквивалентом уровня 1 (нет SPICE-аналога)")
+                warn.append(f"{part}: OPAMP LEVEL={lev} заменён эквивалентом уровня 1 "
+                            f"(MC12 Translate разворачивает его в подсхему; здесь не реализовано)")
             lines.append(f"{name} {' '.join(nodes)} {sub}")
         elif letter == "X":
             lines.append(f"{name} {' '.join(nodes)} {val}")
@@ -368,6 +455,10 @@ def convert(text, title="circuit"):
             if letter in "RCL" and not val.strip():
                 errors.append(f"{part}: нет значения {vattr}")
                 continue
+            v = val.strip()
+            if letter in "RCL" and " " not in v and not v.startswith("{") and not re.fullmatch(
+                    r"[+-]?(?:\d+\.?\d*|\.\d+)(?:E[+-]?\d+)?[A-Z]*", v, re.I):
+                val = "{" + v + "}"  # выражение (10K-R(R1)) - в фигурных скобках, как у MC12 Translate
             model = c["attrs"].get("MODEL", "") if vattr != "MODEL" else ""
             lines.append(" ".join(x for x in [name, *nodes, model, val] if x))
     # текстовая область без моделей PUL/OPA/SIN (они преобразованы)

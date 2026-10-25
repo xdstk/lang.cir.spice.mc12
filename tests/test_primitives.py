@@ -66,8 +66,16 @@ class Primitives(unittest.TestCase):
         net, info = convert(cir([("Sine source", 0, 0, {"PART": "V1", "MODEL": "SRC"}), ("Ground", 0, 6, {})],
                                 [".MODEL SRC SIN (F=50 A=2 DC=1 PH=1.5707963 TAU=1m)"]))
         self.assertEqual(info["errors"], [])
-        self.assertIn("V1 1 0 SIN(1 2 50 0 1000 90) AC 1", body(net))
+        # RS по умолчанию 1 мОм - последовательный резистор через внутренний узел (как у MC12 Translate)
+        self.assertIn("RV1 1 V1_RS 0.001", body(net))
+        self.assertIn("V1 V1_RS 0 SIN(1 2 50 0 1000 90) AC 1", body(net))
         self.assertFalse(any(l.startswith(".MODEL SRC") for l in body(net)))
+
+    def test_sine_source_rs_zero(self):
+        net, _ = convert(cir([("Sine source", 0, 0, {"PART": "V1", "MODEL": "SRC"}), ("Ground", 0, 6, {})],
+                             [".MODEL SRC SIN (F=60 A=170 RS=0)"]))
+        self.assertIn("V1 1 0 SIN(0 170 60 0 0 0) AC 1", body(net))
+        self.assertFalse(any(l.startswith("RV1") for l in body(net)))
 
     def test_sine_missing_model(self):
         _, info = convert(cir([("Sine source", 0, 0, {"PART": "V1", "MODEL": "NOPE"}), ("Ground", 0, 6, {})]))
@@ -95,6 +103,10 @@ class Primitives(unittest.TestCase):
         self.assertIn("E1 1 0 VALUE = {V(A,B)}", body(net))  # запятая внутри значения сохранена
         self.assertIn(".MODEL D0 D (IS=10F)", body(net))
 
+    def test_expression_value_braced(self):
+        net, _ = convert(cir([("Resistor", 0, 0, {"PART": "R2", "RESISTANCE": "10K-R(R1)"}), ("Ground", 0, 0, {})]))
+        self.assertIn("R2 0 1 {10K-R(R1)}", body(net))
+
     def test_missing_value_is_error(self):
         _, info = convert(cir([("Resistor", 0, 0, {"PART": "R1"}), ("Ground", 0, 0, {})]))
         self.assertTrue(any("RESISTANCE" in e for e in info["errors"]))
@@ -112,6 +124,7 @@ class Choke(unittest.TestCase):
         self.assertEqual(info["errors"], [])
         lines = body(net)
         self.assertEqual(sum("SIN(0 100 50 0 0 0) AC 1" in l for l in lines), 2)
+        self.assertEqual(sum(l.startswith(("RV1 ", "RV2 ")) for l in lines), 2)
         self.assertIn("C1 0 B 2UF", lines)
         self.assertIn(".MODEL D0 D (IS=10F CJO=10P)", lines)
 
