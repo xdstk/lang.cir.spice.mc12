@@ -34,6 +34,45 @@ def num(tok):
     return v
 
 
+SOURCE_FUNCS = ("PULSE", "SIN", "EXP", "PWL", "SFFM")
+
+
+def source_value(rest):
+    """Независимый источник V/I -> (DC, AC-амплитуда, функция, аргументы) без учёта порядка частей.
+
+    "AC 1 DC 0 PULSE (0 1m ...)" (MC12 Translate) и "PULSE(0 1M ...) AC 1" дают одно и то же."""
+    toks = re.sub(r"[(),]", " ", " ".join(rest)).split()
+    dc, ac, fn, args, i = 0.0, 0.0, None, [], 0
+    while i < len(toks):
+        u = toks[i].upper()
+        nxt = num(toks[i + 1]) if i + 1 < len(toks) else None
+        if u == "DC" and nxt is not None:
+            dc, i = nxt, i + 2
+        elif u == "AC" and nxt is not None:
+            ac, i = nxt, i + 2
+            if i < len(toks) and num(toks[i]) is not None:  # фаза AC
+                i += 1
+        elif u in SOURCE_FUNCS:
+            fn, i = u, i + 1
+            while i < len(toks) and num(toks[i]) is not None:
+                args.append(num(toks[i]))
+                i += 1
+        elif num(toks[i]) is not None and fn is None and not args:
+            dc, i = num(toks[i]), i + 1  # значение без ключевого слова DC
+        else:
+            i += 1
+    return (dc, ac, fn, tuple(args))
+
+
+def same_value(a, b):
+    if isinstance(a, tuple) or isinstance(b, tuple):
+        if not (isinstance(a, tuple) and isinstance(b, tuple)) or a[2] != b[2] or len(a[3]) != len(b[3]):
+            return False
+        nums_a, nums_b = (a[0], a[1], *a[3]), (b[0], b[1], *b[3])
+        return all(same_value(x, y) for x, y in zip(nums_a, nums_b))
+    return abs(a - b) <= 1e-9 * max(abs(a), abs(b), 1e-30)
+
+
 def norm_name(n):
     return re.sub(r"[_\W]", "", n.upper())
 
@@ -42,12 +81,12 @@ def parse(path):
     with open(path, encoding="utf-8", errors="replace") as fh:
         lines = fh.read().splitlines()
     out = []
-    for l in lines:
-        s = l.strip()
+    for l in lines[1:]:  # первая строка SPICE-файла - заголовок (у MC12 Translate это путь C:\...)
+        s = l.split(";")[0].strip()
         if s.startswith("+") and out:
             out[-1] += " " + s[1:]
         elif s and not s.startswith("*"):
-            out.append(s.split(";")[0].strip())
+            out.append(s)
     elems, in_sub = {}, False
     for s in out:
         t = s.split()
@@ -71,11 +110,14 @@ def parse(path):
         else:
             continue
         val = None
-        for r in rest:
-            v = num(r)
-            if v is not None:
-                val = v
-                break
+        if letter in "VI":
+            val = source_value(rest)
+        else:
+            for r in rest:
+                v = num(r)
+                if v is not None:
+                    val = v
+                    break
         elems[norm_name(t[0])] = {"nodes": [n.upper() for n in nodes], "value": val, "raw": s}
     return elems
 
@@ -109,7 +151,7 @@ def compare(a, b):
     res["topology_match"] = (pa == pb) and ga == gb and not res["only_in_ref"] and not res["only_in_test"]
     res["value_mismatch"] = sorted(k for k in common
                                    if ea[k]["value"] is not None and eb[k]["value"] is not None
-                                   and abs(ea[k]["value"] - eb[k]["value"]) > 1e-9 * max(abs(ea[k]["value"]), 1e-30))
+                                   and not same_value(ea[k]["value"], eb[k]["value"]))
     res["nodes_ref"], res["nodes_test"] = len(pa), len(pb)
     return res
 
