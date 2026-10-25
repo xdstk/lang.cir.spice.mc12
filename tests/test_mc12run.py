@@ -47,13 +47,13 @@ class ParseOutput(unittest.TestCase):
 
     def test_cutoff_rc(self):
         r = mcout.read(OUT / "rc_probe.ANO")
-        fc = mcout.cutoff_3db(mcout.column(r, "F"), mcout.column(r, "DB(V(OUT))"))
+        fc = mcout.cutoff_3db_from_max(mcout.column(r, "F"), mcout.column(r, "DB(V(OUT))"))
         self.assertAlmostEqual(fc / RC_FC, 1, delta=1e-3)
 
     def test_cutoff_highpass_synthetic(self):
         f = [10 ** (k / 100) for k in range(0, 601)]
         g = [20 * math.log10(x / 1e3 / math.sqrt(1 + (x / 1e3) ** 2)) for x in f]  # ФВЧ 1-го порядка, 1 кГц
-        self.assertAlmostEqual(mcout.cutoff_3db(f, g) / 1e3, 1, delta=1e-3)
+        self.assertAlmostEqual(mcout.cutoff_3db_from_max(f, g) / 1e3, 1, delta=1e-3)
 
 
 class ParseBatchLog(unittest.TestCase):
@@ -114,7 +114,7 @@ class RunMC12(unittest.TestCase):
         self.assertTrue(ac["ok"], ac)
         self.assertTrue(self.by[("rc_probe.ckt", "T")]["ok"])
         r = mcout.read(ac["output"])
-        fc = mcout.cutoff_3db(mcout.column(r, "F"), mcout.column(r, "DB(V(OUT))"))
+        fc = mcout.cutoff_3db_from_max(mcout.column(r, "F"), mcout.column(r, "DB(V(OUT))"))
         self.assertAlmostEqual(fc / RC_FC, 1, delta=1e-3)
 
     def test_broken_netlist_reported(self):
@@ -134,9 +134,9 @@ class RunMC12(unittest.TestCase):
             return 20 * math.log10(abs(K * a * v4))
 
         fs = [10 ** (k / 2000) for k in range(6000, 10001)]
-        theory = mcout.cutoff_3db(fs, [gain_db(f) for f in fs])
+        theory = mcout.cutoff_3db_from_max(fs, [gain_db(f) for f in fs])
         r = mcout.read(self.by[("sk_ideal.ckt", "A")]["output"])
-        fc = mcout.cutoff_3db(mcout.column(r, "F"), mcout.db(mcout.column(r, "V(OUT)")))
+        fc = mcout.cutoff_3db_from_max(mcout.column(r, "F"), mcout.db(mcout.column(r, "V(OUT)")))
         self.assertAlmostEqual(fc / theory, 1, delta=1e-3)
 
 
