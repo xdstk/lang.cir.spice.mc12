@@ -1,0 +1,427 @@
+{
+ "version": "gen-1",
+ "seed": 20261025,
+ "scale": 1.0,
+ "files": {
+  "train.jsonl": {
+   "records": 2000,
+   "circuits": 1000,
+   "sha256": "ee3b6c7720a3b1ff85ffc523e1782e0b425d8ab8a920bd981ad73486f682d74f"
+  },
+  "dev.jsonl": {
+   "records": 150,
+   "circuits": 150,
+   "sha256": "b5862fd0244f795879af87a60a53574ed3a106adab931b7a0baac1eb3ba46725"
+  },
+  "test.jsonl": {
+   "records": 500,
+   "circuits": 500,
+   "sha256": "535cbb513060ebd76de982f7778f78631c520f675edfaffb7e25a2e51f0c36ad"
+  },
+  "gen_topology.jsonl": {
+   "records": 100,
+   "circuits": 100,
+   "sha256": "38366b384313227192fc47955feef60914ac09f9f893498fed7eaae672bd5b6f"
+  },
+  "gen_family.jsonl": {
+   "records": 100,
+   "circuits": 100,
+   "sha256": "9fac0fd60220895932b3ea4f1719c0ff95908f16c9192ea64a30e095ba8c7143"
+  },
+  "gen_range.jsonl": {
+   "records": 100,
+   "circuits": 100,
+   "sha256": "d208c5090d38870fee9cdc3817638d6e3e25b959bec48f3156cfe341261169fc"
+  }
+ },
+ "report": {
+  "train": {
+   "sampled": 1081,
+   "admitted": 1081,
+   "rejected": 0,
+   "rejected_detail": []
+  },
+  "dev": {
+   "sampled": 163,
+   "admitted": 163,
+   "rejected": 0,
+   "rejected_detail": []
+  },
+  "test": {
+   "sampled": 541,
+   "admitted": 540,
+   "rejected": 1,
+   "rejected_detail": [
+    {
+     "id": "test-00110",
+     "class": "sallen_key_hp",
+     "netlist": "V1 IN 0 DC 0\nR1 N2 0 560k\nR2 N1 OUT 100\nC1 IN N1 270p\nC2 N1 N2 1.2u\nX1 N2 OUT OUT OPAMP_IDEAL\n",
+     "f_char": 1181.5541040900325,
+     "admission": {
+      "canonical_roundtrip": true,
+      "mc12_run": true,
+      "run_messages": [],
+      "formula_vs_mna": {
+       "type": [
+        "HP",
+        "HP",
+        null,
+        true
+       ],
+       "k_pass_db": [
+        0.0,
+        -3.487047147173038e-06,
+        -4.014610583968903e-07,
+        true
+       ],
+       "f0": [
+        1181.5541040900325,
+        1181.554104090296,
+        2.2303345138956557e-13,
+        true
+       ],
+       "Q": [
+        1.1222447109722133,
+        1.1159958744555483,
+        -0.0055681585803613555,
+        true
+       ],
+       "fc": [
+        887.9272009676272,
+        889.6719564101745,
+        0.0019649757780209527,
+        false
+       ]
+      },
+      "formula_vs_mc12": {
+       "type": [
+        "HP",
+        "HP",
+        null,
+        true
+       ],
+       "k_pass_db": [
+        0.0,
+        -3.487e-06,
+        -4.014556304055006e-07,
+        true
+       ],
+       "f0": [
+        1181.5541040900325,
+        1181.5371558354277,
+        -1.434403599982887e-05,
+        true
+       ],
+       "Q": [
+        1.1222447109722133,
+        1.1159267361203367,
+        -0.005629765763300725,
+        true
+       ],
+       "fc": [
+        887.9272009676272,
+        889.6641178260185,
+        0.001956147819887104,
+        true
+       ]
+      },
+      "formula_ok": false,
+      "admitted": false
+     }
+    }
+   ]
+  },
+  "gen_topology": {
+   "sampled": 109,
+   "admitted": 106,
+   "rejected": 3,
+   "rejected_detail": [
+    {
+     "id": "gen_topology-00071",
+     "class": "mfb_bp",
+     "netlist": "V1 IN 0 DC 0\nR1 IN N1 1.1k\nR2 N1 0 160\nR3 N2 OUT 390k\nC1 N1 OUT 4.7n\nC2 N1 N2 8.2u\nX1 0 N2 OUT OPAMP_IDEAL\n",
+     "f_char": 109.84009797763942,
+     "admission": {
+      "canonical_roundtrip": true,
+      "mc12_run": true,
+      "run_messages": [],
+      "formula_vs_mna": {
+       "type": [
+        "BP",
+        "BP",
+        null,
+        true
+       ],
+       "k_pass_db": [
+        50.98846136586574,
+        50.96424895164648,
+        -0.002783675572347599,
+        false
+       ],
+       "f0": [
+        109.84009797763942,
+        109.84009797763943,
+        1.2937765876806632e-16,
+        true
+       ],
+       "Q": [
+        1.2643123824625484,
+        1.2608520770803442,
+        -0.002736906978214074,
+        true
+       ]
+      },
+      "formula_vs_mc12": {
+       "type": [
+        "BP",
+        "BP",
+        null,
+        true
+       ],
+       "k_pass_db": [
+        50.98846136586574,
+        50.96000064020183,
+        -0.0032712997336326044,
+        false
+       ],
+       "f0": [
+        109.84009797763942,
+        109.85100365986646,
+        9.928689456620457e-05,
+        true
+       ],
+       "Q": [
+        1.2643123824625484,
+        1.25922442921269,
+        -0.004024284916001889,
+        true
+       ]
+      },
+      "formula_ok": false,
+      "admitted": false
+     }
+    },
+    {
+     "id": "gen_topology-00093",
+     "class": "mfb_bp",
+     "netlist": "V1 IN 0 DC 0\nR1 IN N1 24k\nR2 N1 0 130\nR3 N2 OUT 110k\nC1 N1 OUT 15n\nC2 N1 N2 100n\nX1 0 N2 OUT OPAMP_IDEAL\n",
+     "f_char": 1089.6311833012044,
+     "admission": {
+      "canonical_roundtrip": true,
+      "mc12_run": true,
+      "run_messages": [],
+      "formula_vs_mna": {
+       "type": [
+        "BP",
+        "BP",
+        null,
+        true
+       ],
+       "k_pass_db": [
+        12.009672061860146,
+        12.003240184712922,
+        -0.0007402231215514199,
+        true
+       ],
+       "f0": [
+        1089.6311833012044,
+        1089.6311833012048,
+        4.1734061750026045e-16,
+        true
+       ],
+       "Q": [
+        9.823030572103196,
+        9.80521468858031,
+        -0.0018136850325480684,
+        true
+       ]
+      },
+      "formula_vs_mc12": {
+       "type": [
+        "BP",
+        "BP",
+        null,
+        true
+       ],
+       "k_pass_db": [
+        12.009672061860146,
+        11.990103926757001,
+        -0.002250329014010566,
+        false
+       ],
+       "f0": [
+        1089.6311833012044,
+        1089.6469227317846,
+        1.4444732145524882e-05,
+        true
+       ],
+       "Q": [
+        9.823030572103196,
+        9.777359778946952,
+        -0.0046493587514576575,
+        true
+       ]
+      },
+      "formula_ok": true,
+      "admitted": false
+     }
+    },
+    {
+     "id": "gen_topology-00103",
+     "class": "mfb_bp",
+     "netlist": "V1 IN 0 DC 12\nR1 IN N1 270k\nR2 N1 0 150\nR3 N2 OUT 240k\nC1 N1 OUT 220p\nC2 N1 N2 180n\nX1 0 N2 OUT OPAMP_IDEAL\n",
+     "f_char": 4216.400849442237,
+     "admission": {
+      "canonical_roundtrip": true,
+      "mc12_run": true,
+      "run_messages": [],
+      "formula_vs_mna": {
+       "type": [
+        "BP",
+        "BP",
+        null,
+        true
+       ],
+       "k_pass_db": [
+        -1.033660053955471,
+        -1.047545804440233,
+        -0.0015973789335694821,
+        false
+       ],
+       "f0": [
+        4216.400849442237,
+        4216.400849442236,
+        -2.1570404101717226e-16,
+        true
+       ],
+       "Q": [
+        1.397092633682266,
+        1.3949260920945115,
+        -0.0015507501331849837,
+        true
+       ]
+      },
+      "formula_vs_mc12": {
+       "type": [
+        "BP",
+        "BP",
+        null,
+        true
+       ],
+       "k_pass_db": [
+        -1.033660053955471,
+        -1.0479997366992393,
+        -0.0016495549723826164,
+        true
+       ],
+       "f0": [
+        4216.400849442237,
+        4216.324754321986,
+        -1.8047411279949244e-05,
+        true
+       ],
+       "Q": [
+        1.397092633682266,
+        1.3948121994394043,
+        -0.0016322713239502748,
+        true
+       ]
+      },
+      "formula_ok": false,
+      "admitted": false
+     }
+    }
+   ]
+  },
+  "gen_family": {
+   "sampled": 109,
+   "admitted": 109,
+   "rejected": 0,
+   "rejected_detail": []
+  },
+  "gen_range": {
+   "sampled": 109,
+   "admitted": 108,
+   "rejected": 1,
+   "rejected_detail": [
+    {
+     "id": "gen_range-00098",
+     "class": "sallen_key_lp",
+     "netlist": "V1 IN 0 DC 0\nR1 IN N1 7.5MEG\nR2 N1 N2 560\nC1 N2 0 1.2n\nC2 N1 OUT 5.6u\nX1 N2 OUT OUT OPAMP_IDEAL\n",
+     "f_char": 29.95786434790895,
+     "admission": {
+      "canonical_roundtrip": true,
+      "mc12_run": true,
+      "run_messages": [],
+      "formula_vs_mna": {
+       "type": [
+        "LP",
+        "LP",
+        null,
+        true
+       ],
+       "k_pass_db": [
+        0.0,
+        -1.2582282025945003e-05,
+        -1.4485877022352156e-06,
+        true
+       ],
+       "f0": [
+        29.95786434790895,
+        29.95786434793273,
+        7.938438164251358e-13,
+        true
+       ],
+       "Q": [
+        0.5902477580654952,
+        0.5875065331291499,
+        -0.004644193728629374,
+        true
+       ],
+       "fc": [
+        24.253251225587547,
+        24.102032289482374,
+        -0.006234996483507977,
+        false
+       ]
+      },
+      "formula_vs_mc12": {
+       "type": [
+        "LP",
+        "LP",
+        null,
+        true
+       ],
+       "k_pass_db": [
+        0.0,
+        -1.258e-05,
+        -1.4483249746177762e-06,
+        true
+       ],
+       "f0": [
+        29.95786434790895,
+        29.960000000000004,
+        7.128852932418347e-05,
+        true
+       ],
+       "Q": [
+        0.5902477580654952,
+        0.5874902034065107,
+        -0.004671859606925511,
+        true
+       ],
+       "fc": [
+        24.253251225587547,
+        24.102173680972193,
+        -0.006229166688215615,
+        false
+       ]
+      },
+      "formula_ok": false,
+      "admitted": false
+     }
+    }
+   ]
+  }
+ }
+}
