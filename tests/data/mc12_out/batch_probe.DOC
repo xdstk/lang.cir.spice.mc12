@@ -1,0 +1,32 @@
+C:\WORK\mc12run_7288_1792890117468.bat 25.10.2026 5:01:57
+Circuit        Analog       Total   Rejected       Total       Run     Setup      Load     Solve   Device     DoIO    Trunc    Break    NR    PS    DG    JG    PT    T1    T2    T3
+                Nodes  Iterations  Solutions   Solutions      Time      Time      Time      Time     Time     Time     Time     Time
+RC.CKT      /A      2         509          0         506     0.031     0.031     0.000     0.000    0.000    0.000    0.000    0.000     3     0     0     0     0     0     0     0
+RC.CKT      /T      2         108          0          54     0.031     0.031     0.000     0.000    0.000    0.000    0.000    0.000     3     0     0     0     0     0     0     0
+BAD.CKT Error Missing model statement 'NOSUCHMODEL'.
+	Part:	D1
+	File:	C:\WORK\bad.ckt
+NOVAL.CKT Error Missing expression.
+	Part:	R1
+	File:	C:\WORK\noval.ckt 
+FLOAT.CKT Warning Node X has no DC path to ground.
+	Resistor added.
+	Part:	C1
+	File:	C:\WORK\float.ckt
+FLOAT.CKT   /A      3          54          0          51     0.032     0.032     0.000     0.000    0.000    0.000    0.000    0.000     3     0     0     0     0     0     0     0
+SK.CKT      /A     18        1012          0        1003     0.047     0.031     0.000     0.000    0.000    0.000    0.000    0.000     9     0     0     0     0     0     0     0
+Command Line C:\WORK\RC.CKT /A /QUIET
+Error Error in command line '/QUIET'.
+Total elapsed time             0 sec
+Total run time                 0 sec
+Total setup time               0 sec
+Total load time                0 sec
+Total solve time               0 sec
+Total Add Breakpoints time     0 sec
+Total Update Device time       0 sec
+Total DoIO time                0 sec
+Total Truncate time            0 sec
+Total Circuits			          6
+Total Simulations		          4
+Total runs with Error/Warnings 2
+Total runs with Difa Errors    0

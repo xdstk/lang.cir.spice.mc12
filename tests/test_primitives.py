@@ -68,13 +68,13 @@ class Primitives(unittest.TestCase):
         self.assertEqual(info["errors"], [])
         # RS по умолчанию 1 мОм - последовательный резистор через внутренний узел (как у MC12 Translate)
         self.assertIn("RV1 1 V1_RS 0.001", body(net))
-        self.assertIn("V1 V1_RS 0 SIN(1 2 50 0 1000 90) AC 1", body(net))
+        self.assertIn("V1 V1_RS 0 AC 1 SIN(1 2 50 0 1000 90)", body(net))  # AC до функции, иначе MC12 не примет
         self.assertFalse(any(l.startswith(".MODEL SRC") for l in body(net)))
 
     def test_sine_source_rs_zero(self):
         net, _ = convert(cir([("Sine source", 0, 0, {"PART": "V1", "MODEL": "SRC"}), ("Ground", 0, 6, {})],
                              [".MODEL SRC SIN (F=60 A=170 RS=0)"]))
-        self.assertIn("V1 1 0 SIN(0 170 60 0 0 0) AC 1", body(net))
+        self.assertIn("V1 1 0 AC 1 SIN(0 170 60 0 0 0)", body(net))
         self.assertFalse(any(l.startswith("RV1") for l in body(net)))
 
     def test_sine_missing_model(self):
@@ -123,7 +123,7 @@ class Choke(unittest.TestCase):
         net, info = convert((MC12_DATA / "CHOKE.cir").read_text(encoding="cp1251"), "CHOKE")
         self.assertEqual(info["errors"], [])
         lines = body(net)
-        self.assertEqual(sum("SIN(0 100 50 0 0 0) AC 1" in l for l in lines), 2)
+        self.assertEqual(sum("AC 1 SIN(0 100 50 0 0 0)" in l for l in lines), 2)
         self.assertEqual(sum(l.startswith(("RV1 ", "RV2 ")) for l in lines), 2)
         self.assertIn("C1 0 B 2UF", lines)
         self.assertIn(".MODEL D0 D (IS=10F CJO=10P)", lines)

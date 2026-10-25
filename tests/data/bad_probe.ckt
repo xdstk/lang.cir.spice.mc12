@@ -1,0 +1,7 @@
+* broken: unknown model and dangling syntax
+V1 IN 0 DC 0 AC 1
+R1 IN OUT
+D1 OUT 0 NOSUCHMODEL
+.AC DEC 10 10 1MEG
+.PRINT AC V(OUT)
+.END

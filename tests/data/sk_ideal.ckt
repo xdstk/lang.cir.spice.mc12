@@ -1,0 +1,17 @@
+* Sallen-Key_High_Pass_Filter  (converted from Micro-Cap .CIR by cir2spice prototype)
+* Sallen-Key High Pass Filter
+* Run AC Analysis. Th3 -3dB point is set at 10kHz.
+V1 Vp 0 12
+V2 Vn 0 -12
+R1 Out 1 Rmod 18.2K
+V3 2 0 DC 0 AC 1 0 Sin 0 1 1k 0 0 0
+C1 2 1 1n
+C2 3 1 1n
+E1 Out 0 3 4 1E6
+R3 0 3 Rmod 14K
+R4 Out 4 Rmod 10K
+R5 0 4 Rmod 10K
+.MODEL RMOD RES (R=1 Lot=1%)
+.AC DEC 2000 1K 100K
+.PRINT AC V(Out)
+.END

@@ -401,9 +401,10 @@ def convert(text, title="circuit", lib_dir="default"):
             t = [f("P1", "100n"), f("P2", "110n"), f("P3", "500n"), f("P4", "510n"), f("P5", "1u")]
             tv = [spice_num(x) for x in t]
             # Pulse и Sine source дают в AC-анализе фиксированные 1 В (UG12 с. 100, RM12 с. 220)
-            # DC = VZERO, как пишет File > Translate самого MC12
-            lines.append(f"{name} {nodes[0]} {nodes[1]} DC {f('VZERO','0')} PULSE({f('VZERO','0')} {f('VONE','5')} {t[0]} "
-                         f"{fmt(tv[1]-tv[0])} {fmt(tv[3]-tv[2])} {fmt(tv[2]-tv[1])} {t[4]}) AC 1")
+            # как пишет File > Translate самого MC12: AC и DC до функции, иначе при запуске
+            # MC12 сообщает "Extra text 'AC' found" (проверено пакетным прогоном); DC = VZERO
+            lines.append(f"{name} {nodes[0]} {nodes[1]} AC 1 DC {f('VZERO','0')} PULSE({f('VZERO','0')} "
+                         f"{f('VONE','5')} {t[0]} {fmt(tv[1]-tv[0])} {fmt(tv[3]-tv[2])} {fmt(tv[2]-tv[1])} {t[4]})")
         elif definition == "Sine source":
             # RM12 с. 745: V = A*exp(-T/TAU)*sin(2*pi*F*TIME + PH) + DC, T = TIME mod RP, PH в радианах
             p = sin.get(val.upper())
@@ -422,8 +423,8 @@ def convert(text, title="circuit", lib_dir="default"):
             if spice_num(rs):
                 plus = f"{name}_RS"
                 lines.append(f"R{name} {nodes[0]} {plus} {rs}")
-            lines.append(f"{name} {plus} {nodes[1]} SIN({f('DC', '0')} {f('A', '1')} {f('F', '1E6')} 0 "
-                         f"{theta} {phase}) AC 1")
+            lines.append(f"{name} {plus} {nodes[1]} AC 1 SIN({f('DC', '0')} {f('A', '1')} {f('F', '1E6')} 0 "
+                         f"{theta} {phase})")
         elif definition == "NFV":
             # RM12 с. 562: в SPICE-файле MC12 формула задаётся как E<name> + - VALUE = {expr}
             if not val.strip():
@@ -461,20 +462,31 @@ def convert(text, title="circuit", lib_dir="default"):
                 val = "{" + v + "}"  # выражение (10K-R(R1)) - в фигурных скобках, как у MC12 Translate
             model = c["attrs"].get("MODEL", "") if vattr != "MODEL" else ""
             lines.append(" ".join(x for x in [name, *nodes, model, val] if x))
-    # текстовая область без моделей PUL/OPA/SIN (они преобразованы)
+    # текстовая область без моделей PUL/OPA/SIN (они преобразованы) вместе с их строками-продолжениями
+    in_converted = False
     for tl in textlines:
         if re.match(r"\s*\.MODEL\s+\S+\s+(PUL|OPA|SIN)\b", tl, re.I):
+            in_converted = True
+            lines.append("* (converted above) " + tl)
+        elif in_converted and tl.lstrip().startswith("+"):
             lines.append("* (converted above) " + tl)
         elif tl.strip():
+            in_converted = False
             lines.append(tl)
     lines += list(subckts.values())
-    # анализы
+    # анализы; в .PRINT только напряжения узлов, которые есть в этом нетлисте: графики схемы
+    # ссылаются на номера узлов MC12, а они с нашей нумерацией не совпадают
+    known = {n.upper() for n in names.values()} | {"0"}
     printed = {"Transient": [], "AC": []}
     for w in waves:
         an, y = w.get("Analysis"), w.get("YExp", "")
-        mm = re.fullmatch(r"(?:dB\()?\s*(V\([^()]+\))\s*\)?", y.strip(), re.I)
-        if an in printed and mm and mm.group(1) not in printed[an]:
+        mm = re.fullmatch(r"(?:dB\()?\s*(V\(([^()]+)\))\s*\)?", y.strip(), re.I)
+        if an not in printed or not mm or mm.group(1) in printed[an]:
+            continue
+        if all(n.strip().upper() in known for n in mm.group(2).split(",")):
             printed[an].append(mm.group(1))
+        else:
+            warn.append(f"{an}: график {mm.group(1)} ссылается на узел, которого нет в нетлисте; в .PRINT не включён")
     # анализ выводим, только если в схеме для него заданы графики
     used = {w.get("Analysis") for w in waves if w.get("YExp", "").strip()}
     for lim in limits:
