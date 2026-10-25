@@ -6,3 +6,6 @@ out_ckt/
 *.DNO
 report.json
 out/
+# образцы вывода MC12 для тестов - хранить в репозитории
+!tests/data/mc12_out/
+!tests/data/mc12_out/*
