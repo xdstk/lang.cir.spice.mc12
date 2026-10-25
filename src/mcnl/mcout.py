@@ -129,9 +129,10 @@ def db(values):
     return [20 * math.log10(abs(v)) if v not in (None, 0) else None for v in values]
 
 
-def cutoff_3db(freq, gain_db):
-    """Частота среза по уровню -3 дБ от максимума АЧХ (ФНЧ, ФВЧ: первое пересечение уровня
-    при движении от максимума к соответствующему краю)."""
+def cutoff_3db_from_max(freq, gain_db):
+    """Частота по уровню -3 дБ от МАКСИМУМА АЧХ (первое пересечение при движении от максимума к краю).
+    Для фильтров с подъёмом (Q > 0,707) это не fc по определению eval_spec (от уровня полосы) -
+    для оценки использовать measure.fc."""
     vals = [g for g in gain_db if g is not None]
     gmax = max(vals)
     k = gain_db.index(gmax)
