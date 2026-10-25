@@ -17,7 +17,8 @@ import re
 import sys
 
 NPINS = {"R": 2, "C": 2, "L": 2, "V": 2, "I": 2, "D": 2, "B": 2, "Q": 3, "J": 3,
-         "M": 4, "E": 4, "G": 4, "F": 2, "H": 2}
+         "M": 4, "E": 4, "G": 4, "F": 2, "H": 2, "S": 4, "W": 2}
+BEHAVIORAL = ("VALUE", "TABLE", "LAPLACE", "FREQ")  # E/G в форме PSpice: только два узла
 SUF = [("MEG", 1e6), ("T", 1e12), ("G", 1e9), ("K", 1e3), ("M", 1e-3), ("U", 1e-6),
        ("N", 1e-9), ("P", 1e-12), ("F", 1e-15)]
 
@@ -63,6 +64,8 @@ def parse(path):
         if letter == "X":
             toks = [x for x in t[1:] if "=" not in x and x.upper() != "PARAMS:"]
             nodes, rest = toks[:-1], toks[-1:]
+        elif letter in "EG" and len(t) > 3 and t[3].upper().startswith(BEHAVIORAL):
+            nodes, rest = t[1:3], []
         elif letter in NPINS:
             nodes, rest = t[1:1 + NPINS[letter]], t[1 + NPINS[letter]:]
         else:
