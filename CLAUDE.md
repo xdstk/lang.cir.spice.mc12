@@ -54,6 +54,10 @@
 - `src/mcnl/cir2spice.py` - .CIR → SPICE. `netlist_compare.py` - топология и номиналы.
   `mc12run.py` - пакетный запуск .ckt в MC12. `mcout.py` - разбор .ANO/.TNO, частота среза.
   `make_test_cir.py` - тестовый .CIR. `audit_netlists.py` - аудит Masala-CHAI.
+- Оценка (eval_spec): `canon.py` - канон и JSON-IR; `iso.py` - изоморфизм; `bench.py` - обвязка
+  и OPAMP_IDEAL; `measure.py` - измерения и допуски; `score.py` - уровни S0-S4 и сводка;
+  `formulas.py` - топологии L1/L2 и формулы; `mna.py` - узловой расчёт без MC12;
+  `pilot.py` - пилот эталонов и допуск в датасет.
 - Нетлист, совпавший по топологии, ещё не обязательно запускается (порядок `AC 1` и функции
   источника, .PRINT по узлам): проверять настоящим прогоном через mc12run.
 - Тесты: `python -m unittest discover -s tests` (должны проходить перед коммитом).
@@ -72,10 +76,9 @@
   Transient + AC. Эталоны - в tests/reference, локальный путь в первой строке заменять.
 
 ## Ближайшие задачи
-1. Оценочный канон - план в docs/eval_spec.md, раздел 12, по порядку: canon.py → iso.py →
-   bench.py (сначала проверить землю внутри .SUBCKT в MC12) → measure.py → score.py →
-   tests/golden → formulas.py + пилот 10–15 эталонов.
-2. После канона - спецификация генератора (топологии, номиналы, шаблоны запросов) с автором.
+1. Спецификация генератора (топологии, номиналы, шаблоны русских запросов) с автором.
+   Оценочный канон (eval_spec, раздел 12) реализован: canon, iso, bench, measure, score,
+   tests/golden, formulas + mna + pilot (15 эталонов в data/pilot/refs.jsonl).
 3. Отложено: сверка с Translate по схемам целевого класса (кандидаты - docs/mc12_pipeline.md),
    spice2cir (метки узлов, простая раскладка).
 - Вне целевого класса, только при необходимости: OPAMP уровней 2–3, Tline, .ARRAY, цифровые.
