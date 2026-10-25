@@ -90,7 +90,9 @@
    руководитель, A03… - другие); импорт -> propose -> ручная правка data/human_test/labels.md -> build ->
    evaluate. human_dev (A01) можно использовать для доработок, human_test - заморозить.
    baseline (translators/baseline.py) на синтетике - 100% по построению, планка - на человеческом тесте.
-   Затем по итогам - датасет v2 (docs/generator_spec.md) и этап 2.
+   Затем по итогам - датасет v2 (docs/generator_spec.md) и этап 2. На этапе 2 одна и та же модель
+   обучается на v1 и на v2 (равный объём train), рядом - baseline и baseline+; план эксперимента -
+   generator_spec.md, «Эксперимент v1 против v2».
    Программа (app.py) и сменные переводчики готовы - docs/program.md.
    Возможное улучшение spice2cir - более наглядная раскладка.
 2. Датасет v1 готов: data/dataset/v1 (2950 записей, test заморожен - SHA-256 в README датасета;
