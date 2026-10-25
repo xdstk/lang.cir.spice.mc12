@@ -7,7 +7,8 @@
   type     flat | LP | HP | BP | BS - по форме АЧХ: размах < 0,5 дБ - flat; оба края ниже максимума
            > 25 дБ - BP; разница краёв > 10 дБ - LP/HP; подъём/провал > 3 дБ относительно краёв - BP/BS
   k_dc_db  |H| на нижней частоте развёртки, дБ
-  k_pass_db уровень полосы: LP - |H(fl)|, HP - |H(fh)|, flat - медиана, BP - максимум,
+  k_pass_db уровень полосы: LP - |H(fl)|, HP - |H(fh)|, flat - медиана, BP - максимум (вершина
+           параболы через три точки у максимума),
            BS - больший из краёв; дБ
   fc       |H| = k_pass/sqrt(2) (уровень полосы, не максимум): LP - первое пересечение снизу,
            HP - последнее сверху; логарифмическая интерполяция по частоте
@@ -90,6 +91,23 @@ def _asymptote(p):
     return 90.0 * round(p / 90.0)
 
 
+def _peak(f, db, k):
+    """Вершина параболы через три точки у максимума (по lg f): уровень пика не зависит от того, как
+    сетка легла относительно него (у MC12 и mna.py сетки сдвинуты, частоты MC12 - 4 значащие цифры)."""
+    if not 0 < k < len(db) - 1:
+        return db[k]
+    x0, x1, x2 = (math.log10(f[i]) for i in (k - 1, k, k + 1))
+    y0, y1, y2 = db[k - 1], db[k], db[k + 1]
+    d = (x0 - x1) * (x0 - x2) * (x1 - x2)
+    a = (x2 * (y1 - y0) + x1 * (y0 - y2) + x0 * (y2 - y1)) / d
+    b = (x2 * x2 * (y0 - y1) + x1 * x1 * (y2 - y0) + x0 * x0 * (y1 - y2)) / d
+    if a >= 0:
+        return db[k]
+    xv = -b / (2 * a)
+    c = y0 - a * x0 * x0 - b * x0
+    return a * xv * xv + b * xv + c
+
+
 def classify(db):
     lo, hi, gmax, gmin = db[0], db[-1], max(db), min(db)
     if gmax - gmin < FLAT_DB:
@@ -127,8 +145,8 @@ def measure(f, db, ph=None):
     elif t == "flat":
         kp = statistics.median(db)
     elif t == "BP":
-        kp = max(db)
-        k = db.index(kp)
+        k = db.index(max(db))
+        kp = _peak(f, db, k)
         f1 = _last_crossing(f[:k + 1], db[:k + 1], kp - DB3)
         f2 = mcout.crossing(f[k:], db[k:], kp - DB3)
         if f1 and f2:
