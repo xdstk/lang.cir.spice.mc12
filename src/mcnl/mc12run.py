@@ -19,7 +19,7 @@ import re
 import subprocess
 import sys
 import time
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 ANALYSES = {"A": ".ANO", "T": ".TNO", "D": ".DNO"}
 DEFAULT_EXES = [r"C:\MC12\Micro-Cap 12.exe", r"C:\MC12\mc12.exe"]  # 64 бит, затем 32 бит
@@ -65,7 +65,7 @@ def parse_doc(text):
             continue
         m = re.match(r"^Command Line\s+(\S+\.(?:CKT|CIR))", line, re.I)
         if m:
-            last = res.setdefault((Path(m.group(1)).name.upper(), None), {"ok": True, "messages": []})
+            last = res.setdefault((PureWindowsPath(m.group(1)).name.upper(), None), {"ok": True, "messages": []})
             continue
         if line.startswith("Error") and last is not None:
             last["messages"].append(line.strip())
