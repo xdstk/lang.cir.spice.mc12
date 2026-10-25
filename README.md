@@ -25,6 +25,7 @@
 | `src/mcnl/app.py` | программа: запрос → переводчик → проверка и расчёт в MC12 → .CIR → MC12 (docs/program.md) |
 | `src/mcnl/translators/` | сменные переводчики («батарейки»): baseline на правилах, заглушка echo; сюда встают обученные модели |
 | `src/mcnl/evaluate.py` | оценка любого переводчика на выборке датасета (S0–S4, интервалы Уилсона) |
+| `src/mcnl/human_test.py`, `data/human_test/` | человеческий тест: импорт запросов, разметка эталонов, сборка выборок (docs/human_test.md) |
 | `src/mcnl/make_test_cir.py` | генерация тестового .CIR (RC-фильтр; заготовка для spice2cir) |
 | `src/mcnl/audit_netlists.py` | статический аудит пар «подпись - нетлист» (Masala-CHAI) |
 | `mc_list.bat`, `run_mc12.cmd` | шаблоны пакетного запуска MC12 |
