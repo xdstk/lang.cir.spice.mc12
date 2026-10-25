@@ -13,6 +13,8 @@
 |---|---|
 | `src/mcnl/cir2spice.py` | схема MC (.CIR) → SPICE-нетлист, отчёт о неподдерживаемых элементах |
 | `src/mcnl/netlist_compare.py` | совпадение топологии (без имён узлов) и номиналов; метрика оценки |
+| `src/mcnl/mc12run.py` | пакетный запуск .ckt в MC12, статус каждого анализа по журналу MC12 |
+| `src/mcnl/mcout.py` | разбор числового вывода .ANO/.TNO/.DNO, частота среза по −3 дБ |
 | `src/mcnl/make_test_cir.py` | генерация тестового .CIR (RC-фильтр; заготовка для spice2cir) |
 | `src/mcnl/audit_netlists.py` | статический аудит пар «подпись - нетлист» (Masala-CHAI) |
 | `mc_list.bat`, `run_mc12.cmd` | шаблоны пакетного запуска MC12 |
@@ -23,6 +25,8 @@
 ```
 python src/mcnl/cir2spice.py путь\к\DATA --out out_ckt --report report.json
 python src/mcnl/netlist_compare.py эталон.ckt проверяемый.ckt
+python src/mcnl/mc12run.py out\схема.ckt          (файлы - в обычной папке, не в AppData)
+python src/mcnl/mcout.py out\схема.ANO
 python -m unittest discover -s tests
 ```
 
@@ -32,6 +36,9 @@ python -m unittest discover -s tests
   номиналам на 6 схемах (MOSDIFF, OPAMP1, Sallen-Key, CHOKE, S_BUCK_CM, BAX); по всей DATA
   без ошибок 83 файла из 191 (остальные - цифровые, макросы, редкие аналоговые примитивы).
   Порядок выводов библиотечных подсхем берётся из `C:\MC12\LIBRARY` (переменная MC12_LIBRARY).
+- Пакетный запуск: MC12 сам закрывается, ошибки пишет в журнал без окон; результат сходится
+  с теорией (fc RC-фильтра −0,001%, Саллен-Ки с идеальным ОУ −0,03%). Из 79 нетлистов DATA,
+  выданных конвертером без ошибок, запускаются 66; остальные - вне целевого класса.
 - SPICE → .CIR: RC-фильтр с проводами и вариант с метками узлов без проводов открываются
   в MC12, AC-анализ верен (−2,99 дБ на 1584,9 Гц при теории −2,992 дБ).
 - Поворот Rot подтверждён для двухвыводных элементов и для MOSFET с Rot 0, 4, 6; остальные
@@ -39,8 +46,8 @@ python -m unittest discover -s tests
 - OPAMP уровня 1 переводится так же, как у MC12; уровни 2–3 MC12 разворачивает в подсхемы,
   у нас пока эквивалент уровня 1 с предупреждением.
 
-Подробности и ссылки на страницы руководств MC12 - в документах проекта на claude.ai
-(`mc12_pipeline.md`, `audit_masala_chai_batch100.md`).
+Подробности и ссылки на страницы руководств MC12 - в `docs/mc12_pipeline.md` и
+`docs/audit_masala_chai_batch100.md`.
 
 Примеры `tests/data/OPAMP1.cir`, `Sallen-Key_High_Pass_Filter.cir`, `Counter.cir` взяты из
 поставки Micro-Cap 12 (Spectrum Software); репозиторий должен оставаться приватным.
