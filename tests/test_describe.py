@@ -16,7 +16,7 @@ from mcnl import canon, cascade, describe_ru, formulas, iso, sampler  # noqa: E4
 
 def roundtrip(netlist, family, seed):
     prompt = describe_ru.describe_a(netlist, family, random.Random(seed))
-    back = describe_ru.parse_a(prompt)
+    back = describe_ru.parse_a(prompt, family)
     return iso.match(canon.parse_netlist(netlist)[0], back, "values")["match"], prompt
 
 
@@ -58,6 +58,37 @@ class TaskA(unittest.TestCase):
             describe_ru.parse_a("На вход схемы подаётся сигнал. Резистор 10 кОм между входом схемы и точкой 1 и выходом схемы.")
 
 
+class Brief(unittest.TestCase):
+    def test_style(self):
+        p = describe_ru.describe_a("V1 IN 0 DC 5\nR1 IN N1 10k\nC1 N1 0 100n\nR2 N1 OUT 1MEG\n", "brief",
+                                   random.Random(0))
+        self.assertNotIn("между", p)
+        self.assertLess(len(p), 80, p)
+
+    def test_short_values(self):
+        b = describe_ru.Brief(random.Random(0))
+        b.units, b.comma = False, True
+        self.assertEqual(b.value("R", "4.7k"), "4,7к")
+        self.assertEqual(b.value("R", "330"), "330")
+        self.assertEqual(b.value("R", "1MEG"), "1М")
+        self.assertEqual(b.value("C", "100n"), "100н")
+        self.assertEqual(b.value("C", "2.2u"), "2,2мк")
+        self.assertEqual(b.value("L", "10m"), "10мГн")
+
+    def test_parse_rejects_capacitor_without_unit(self):
+        with self.assertRaises(ValueError):
+            describe_ru.parse_brief("сигнал на вх; R1 1к вх-вых; C1 100 вых-0")
+
+    def test_a1_brief_values(self):
+        rng = random.Random(6)
+        for topo in formulas.TOPOLOGIES:
+            ref, _ = sampler.sample(topo, rng)
+            text = describe_ru.describe_a1_brief(ref, random.Random(1))
+            with self.subTest(topo=topo):
+                self.assertTrue(set(describe_ru.ROLES[topo]["short_roles"]) <= set(ref["params"]) | {"Ra", "Rb"})
+                self.assertLess(len(text), 160, text)
+
+
 class TaskA1(unittest.TestCase):
     def test_roles_cover_all_parameters(self):
         for topo, (fn, *_rest) in formulas.TOPOLOGIES.items():
@@ -65,6 +96,8 @@ class TaskA1(unittest.TestCase):
             with self.subTest(topo=topo):
                 self.assertIn(topo, describe_ru.ROLES)
                 self.assertEqual(set(describe_ru.ROLES[topo]["roles"]), set(params))
+                self.assertEqual(set(describe_ru.ROLES[topo]["short_roles"]), set(params))
+                self.assertTrue(describe_ru.ROLES[topo]["short_names"])
 
     def test_every_value_mentioned(self):
         rng = random.Random(6)

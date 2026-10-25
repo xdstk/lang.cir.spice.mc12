@@ -34,6 +34,10 @@ SPLITS = {  # выборка: (число схем, формулировок н�
 }
 LEVEL_SHARE = {"L1": 0.30, "L2": 0.45, "L3": 0.25}
 TASK_A_SHARE = 0.7
+# семейства задачи A и их веса: краткая запись (brief) - чаще, реальные запросы короче (замечание автора);
+# у A' - поровну полная (roles) и краткая (roles_brief) запись
+FAMILY_WEIGHTS = {"brief": 0.4, "list": 0.2, "table": 0.2, "narrative": 0.2}
+A1_BRIEF_SHARE = 0.5
 HELD_OUT_TOPOLOGIES = {"mfb_bp", "rl_hp"}
 HELD_OUT_CASCADES = {"HP+LP"}
 HELD_OUT_FAMILY = "path"
@@ -113,17 +117,20 @@ def sample_circuits(split, n, rng, seen):
 def prompts_for(ref, k, rng, split):
     """k формулировок схемы: (task, family, prompt). Запросы A проверяются обратным разбором."""
     out = []
-    families = [HELD_OUT_FAMILY] if split == "gen_family" else [f for f in describe_ru.FAMILIES if f != HELD_OUT_FAMILY]
+    families = {HELD_OUT_FAMILY: 1.0} if split == "gen_family" else FAMILY_WEIGHTS
     target = canon.parse_netlist(ref["netlist"])[0]
     while len(out) < k:
         task = "A" if split == "gen_family" or rng.random() < TASK_A_SHARE else "A1"
         if task == "A1":
-            prompt, family = describe_ru.describe_a1(ref, random.Random(rng.random())), "roles"
+            if rng.random() < A1_BRIEF_SHARE:
+                prompt, family = describe_ru.describe_a1_brief(ref, random.Random(rng.random())), "roles_brief"
+            else:
+                prompt, family = describe_ru.describe_a1(ref, random.Random(rng.random())), "roles"
         else:
-            family = rng.choice(families)
+            family = rng.choices(list(families), list(families.values()))[0]
             prompt = describe_ru.describe_a(ref["netlist"], family, random.Random(rng.random()))
             try:
-                ok = iso.match(target, describe_ru.parse_a(prompt), "values")["match"]
+                ok = iso.match(target, describe_ru.parse_a(prompt, family), "values")["match"]
             except ValueError:
                 ok = False
             if not ok:

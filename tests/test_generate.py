@@ -50,6 +50,9 @@ class Parts(unittest.TestCase):
         ps = generate.prompts_for(r, 2, random.Random(7), "train")
         self.assertEqual(len({p for _, _, p in ps}), 2)
         self.assertTrue(all(f != "path" for _, f, _ in ps))
+        fams = [f for _ in range(60) for _, f, _ in generate.prompts_for(r, 1, random.Random(_), "train")]
+        self.assertIn("brief", fams)
+        self.assertIn("roles_brief", fams)
 
 
 def mc12_available():
