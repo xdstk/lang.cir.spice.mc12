@@ -21,6 +21,10 @@ from mcnl import bench, canon, mc12run, measure, mna, score, spice2cir, translat
 
 ROOT = Path(__file__).resolve().parents[2]
 WIDE = (1.0, 1e8)  # широкая развёртка для оценки характерной частоты без эталона
+# подсказка, а не обязательный формат: обученной модели единый разделитель не нужен, baseline - помогает
+INPUT_HINT = ("Совет: назовите схему и перечислите элементы через «;» или с новой строки, указывая роль "
+              "или выводы и номинал, например: «RC ФНЧ: R 1 кОм; C 100 нФ; сигнал на вх» или "
+              "«R1 1к вх-вых; C1 100н вых-0; сигнал на вх».")
 
 
 def characteristic_frequency(elems):
@@ -47,6 +51,8 @@ def run(prompt=None, translator=None, netlist=None, outdir=None, name="circuit",
     rep["parse_errors"] = errs
     if elems is None:
         rep["messages"].append("ответ переводчика не разобран (S0): схема не построена")
+        if netlist is None:
+            rep["messages"].append(INPUT_HINT)
         return rep
     elems = canon.canonicalize(elems)
     rep["netlist"] = canon.to_netlist(elems)
