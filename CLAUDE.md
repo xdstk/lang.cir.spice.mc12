@@ -61,7 +61,7 @@
 - Датасет v2 (docs/generator_v2_spec.md): `filters_v2.py` - новые топологии (отдельно от formulas.TOPOLOGIES, v1 воспроизводится);
   `compose.py` - цепочки и добавки, запросы к ним; `prompts_v2.py` - семейства freeform, terse, правки текста;
   `edge_cases.py` - странные схемы и отказы;
-  `generate_v2.py` - сборка gen-2;
+  `generate_v2.py` - сборка gen-2; `paraphrase.py` - парафразы train; датасет - data/dataset/v2 (заморожен);
   главная метрика - data/dataset/llm_test_v1 (заморожена).
 - Генератор: `sampler.py` - номиналы; `cascade.py` - каскады L3; `describe_ru.py` - русские
   запросы и их обратный разбор (словарь ролей - data/roles_ru.json); `generate.py` - сборка.
@@ -104,7 +104,8 @@
    generator_spec.md, «Эксперимент v1 против v2».
    Программа (app.py) и сменные переводчики готовы - docs/program.md.
    Возможное улучшение spice2cir - более наглядная раскладка.
-2. Датасет v1 готов: data/dataset/v1 (2950 записей, test заморожен - SHA-256 в README датасета;
+2. Датасет v2 готов (data/dataset/v2, файлы не менять). Дальше - этап 2: обучение моделей, режим дизайнера - отдельно.
+   Датасет v1 готов: data/dataset/v1 (2950 записей, test заморожен - SHA-256 в README датасета;
    файлы датасета не менять, новая версия - v2). Дальше - этап 2: обучение моделей.
    Оценочный канон (eval_spec, раздел 12) реализован: canon, iso, bench, measure, score,
    tests/golden, formulas + mna + pilot (15 эталонов в data/pilot/refs.jsonl).

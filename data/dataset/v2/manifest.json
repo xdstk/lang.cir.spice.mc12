@@ -1,0 +1,68 @@
+{
+ "version": "gen-2",
+ "seed": 20261101,
+ "scale": 1.0,
+ "files": {
+  "train.jsonl": {
+   "records": 2999,
+   "sha256": "46ff0589f278f1e4e0cf32e54f34b126dfc83a4fac77fbe2096b95b54159a0a6"
+  },
+  "dev.jsonl": {
+   "records": 150,
+   "sha256": "d09a6e55e06105f53f22719bb7a74b41ee6742fae6ea4052bcb72a8ca7ba12b1"
+  },
+  "test.jsonl": {
+   "records": 500,
+   "sha256": "8175d6c71d9435fdbd887563a028f9569d2cc569ddfcaadfb9f0dd543cbd79b5"
+  },
+  "gen_topology.jsonl": {
+   "records": 100,
+   "sha256": "44fa77b45275948e7c0e901546bbc56069024b83efbd817af19788f328e55748"
+  },
+  "gen_family.jsonl": {
+   "records": 100,
+   "sha256": "fe30542e350faea59e7c7bab60bfeeba28b77c3e6d9f16ea3936bccfd2770c81"
+  },
+  "gen_range.jsonl": {
+   "records": 100,
+   "sha256": "6ce96d0f1c89daf1d3c654cd3cd3297a3a0fe2b0a0166d5094b4897d0899fd0a"
+  }
+ },
+ "report": {
+  "train": {
+   "rejected": 1,
+   "rejected_detail": [
+    {
+     "id": "train-02983",
+     "class": "cascade:sallen_key_hp+active_lp_inv",
+     "netlist": "V1 IN 0 DC 1\nR1 N2 0 6.8k\nR2 N3 0 9.1k\nR3 N1 N5 620\nR4 N3 N5 820\nR5 N4 N5 130\nR6 N4 OUT 4.3k\nC1 IN N1 100n\nC2 N1 N2 15n\nC3 N4 OUT 150p\nX1 0 N4 OUT OPAMP_IDEAL\nX2 N2 N3 N5 OPAMP_IDEAL\n"
+    }
+   ]
+  },
+  "dev": {
+   "rejected": 0,
+   "rejected_detail": []
+  },
+  "test": {
+   "rejected": 0,
+   "rejected_detail": []
+  },
+  "gen_topology": {
+   "rejected": 0,
+   "rejected_detail": []
+  },
+  "gen_family": {
+   "rejected": 0,
+   "rejected_detail": []
+  },
+  "gen_range": {
+   "rejected": 0,
+   "rejected_detail": []
+  }
+ },
+ "paraphrases": {
+  "author": "C02",
+  "applied": 591,
+  "rejected": 0
+ }
+}
