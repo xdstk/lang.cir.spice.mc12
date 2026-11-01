@@ -80,6 +80,10 @@ class Mutate(unittest.TestCase):
                 self.assertEqual(numbers(new), numbers(base), new)
         self.assertGreaterEqual(len(seen), 6)
 
+    def test_lower_keeps_units(self):
+        self.assertEqual(prompts_v2._lower("Резистор 1 МОм"), "резистор 1 МОм")
+        self.assertEqual(prompts_v2._lower("10 нФ: Вход"), "10 нФ: Вход")
+
     def test_cyrillic_c(self):
         self.assertEqual(prompts_v2._cyrillic_c("C1 100н, R1 1к"), "С1 100н, R1 1к")
 
