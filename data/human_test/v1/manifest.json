@@ -1,0 +1,75 @@
+{
+ "files": {
+  "human_dev.jsonl": {
+   "records": 0,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "human_test.jsonl": {
+   "records": 0,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "paraphrase.jsonl": {
+   "records": 38,
+   "sha256": "5ea40719e92d02e9d2ca69efedc83d9a0ac74d353596670b1fe0b5c3256cb459"
+  }
+ },
+ "report": {
+  "skipped": {
+   "unclear": 6,
+   "out": 5
+  },
+  "errors": [],
+  "rejected": [
+   {
+    "id": "H0043",
+    "admission": {
+     "canonical_roundtrip": true,
+     "mc12_run": true,
+     "run_messages": [],
+     "formula_vs_mna": {
+      "type": [
+       "LP",
+       "LP",
+       null,
+       true
+      ],
+      "k_pass_db": [
+       100.15301871402102,
+       100.15301871402102,
+       0.0,
+       true
+      ],
+      "fc": [
+       0.002005225948948682,
+       0.002005225948948682,
+       0.0,
+       true
+      ]
+     },
+     "formula_vs_mc12": {
+      "type": [
+       "LP",
+       "LP",
+       null,
+       true
+      ],
+      "k_pass_db": [
+       100.15301871402102,
+       100.2,
+       0.005423575057371233,
+       false
+      ],
+      "fc": [
+       0.002005225948948682,
+       0.001993639067654133,
+       -0.005778341987158102,
+       false
+      ]
+     },
+     "formula_ok": true,
+     "admitted": false
+    }
+   }
+  ]
+ }
+}
