@@ -47,6 +47,7 @@ def describe(rep):
         lines.append("Расчёт в MC12: " + ", ".join(parts))
     elif "run" in rep:
         lines.append("MC12: " + "; ".join(rep["run"]["messages"]))
+    lines += [f"Замечание: {n}" for n in rep.get("notes", [])]
     if rep.get("cir"):
         lines.append(f"Схема: {rep['cir']}")
     return "\n".join(lines)

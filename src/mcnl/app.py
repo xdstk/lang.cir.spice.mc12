@@ -36,6 +36,25 @@ def characteristic_frequency(elems):
     return m.get("fc") or m.get("f0") or m.get("f_u")
 
 
+def circuit_notes(elems):
+    """Замечания к схеме: модель схему не чинит (docs/generator_v2_spec.md, раздел 2.3), программа предупреждает."""
+    notes, use = [], {}
+    for e in elems:
+        for n in set(e["nodes"]):
+            use.setdefault(n, []).append(e)
+    for n, es in use.items():
+        if n not in ("IN", "OUT", "0") and len(es) == 1:
+            notes.append(f"{es[0]['name']}: второй вывод никуда не подключён")
+    for e in elems:
+        if e["type"] in "RCL" and set(e["nodes"]) == {"IN", "0"}:
+            notes.append(f"{e['name']} стоит прямо на источнике и на выход не влияет")
+    if "OUT" not in use:
+        notes.append("в схеме нет узла выхода")
+    elif len(use["OUT"]) == 1 and use["OUT"][0]["type"] in "RCL":
+        notes.append(f"выход подключён только через {use['OUT'][0]['name']}: нагрузки нет")
+    return notes
+
+
 def run(prompt=None, translator=None, netlist=None, outdir=None, name="circuit", open_mc12=False, mc12=True):
     """-> отчёт {prompt, model, output, parse_errors, netlist, f_char, run, measured, cir, messages}."""
     outdir = Path(outdir or ROOT / "out" / "app")
@@ -61,6 +80,7 @@ def run(prompt=None, translator=None, netlist=None, outdir=None, name="circuit",
         return rep
     elems = canon.canonicalize(elems)
     rep["netlist"] = canon.to_netlist(elems)
+    rep["notes"] = circuit_notes(elems)
     rep["f_char"] = characteristic_frequency(elems)
     if mc12:
         res = bench.run([(name, elems, rep["f_char"])], outdir)[name]

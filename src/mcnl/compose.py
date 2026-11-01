@@ -256,20 +256,20 @@ BASES = ["rc_lp", "rc_hp", "rl_lp", "rl_hp", "rlc_series_bp", "rlc_parallel_bp",
          "rlc_series_lp", "rlc_series_hp", "rlc_series_bs", "mfb_lp", "mfb_hp"]
 
 
-def _reference(netlist, cls, params):
-    """Нетлист -> эталон или причина отказа."""
+def _reference(netlist, cls, params, unusual=False):
+    """Нетлист -> эталон или причина отказа. unusual - нереальный номинал: разброс и диапазон частот не проверяются."""
     elems, err = canon.parse_netlist(netlist)
     if err:
         return None, "parse"
     n_op = sum(e["type"] == "OPAMP" for e in elems)
     if len(elems) - 1 > MAX_ELEMENTS or n_op > MAX_OPAMPS:
         return None, "size"
-    if not filters_v2.spread_ok(netlist):
+    if not unusual and not filters_v2.spread_ok(netlist):
         return None, "spread"
     elems = canon.canonicalize(elems)
     try:
         f_char = filters_v2.characteristic_frequency(elems)
-        if f_char is None or not sampler.F_RANGE[0] <= f_char <= sampler.F_RANGE[1]:
+        if f_char is None or (not unusual and not sampler.F_RANGE[0] <= f_char <= sampler.F_RANGE[1]):
             return None, "f_char"
         lo, hi = bench.ac_range(f_char)
         f, db, ph = mna.sweep(elems, lo, hi, per_decade=bench.POINTS_PER_DECADE)
