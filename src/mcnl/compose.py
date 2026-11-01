@@ -11,20 +11,18 @@ import random
 import re
 
 try:
-    from . import bench, canon, describe_ru, filters_v2, formulas, measure, mna, sampler
+    from . import bench, canon, describe_ru, filters_v2, measure, mna, sampler
 except ImportError:  # запуск как скрипта
     import bench
     import canon
     import describe_ru
     import filters_v2
-    import formulas
     import measure
     import mna
     import sampler
 
 MAX_ELEMENTS = 12
 MAX_OPAMPS = 3
-MAX_SPREAD = 1000.0  # разброс номиналов одного типа внутри схемы
 GRID_DB = 0.2       # уровень полосы не должен зависеть от сдвига сетки на полшага
 MAX_PEAK_DB = 20.0  # подъём над краями: Q около 10, как в генераторе v1
 CHAIN_SECTIONS = (2, 6)
@@ -41,7 +39,7 @@ _UNITS = {"кОм": ("R", 1e3), "к": ("R", 1e3), "МОм": ("R", 1e6), "М": ("
 
 
 def _pick(kind, rng):
-    return sampler.pick(kind, rng)
+    return filters_v2.pick(kind, rng)
 
 
 def _fmt(x):
@@ -258,25 +256,16 @@ BASES = ["rc_lp", "rc_hp", "rl_lp", "rl_hp", "rlc_series_bp", "rlc_parallel_bp",
          "rlc_series_lp", "rlc_series_hp", "rlc_series_bs", "mfb_lp", "mfb_hp"]
 
 
-def _base(name, rng):
-    if name in formulas.TOPOLOGIES:
-        return sampler.sample(name, rng)[0]
-    return filters_v2.sample(name, rng)[0]
-
-
 def _reference(netlist, cls, params):
     """Нетлист -> эталон или причина отказа."""
     elems, err = canon.parse_netlist(netlist)
     if err:
         return None, "parse"
     n_op = sum(e["type"] == "OPAMP" for e in elems)
-    two = [e for e in elems if e["type"] in "RCL"]
     if len(elems) - 1 > MAX_ELEMENTS or n_op > MAX_OPAMPS:
         return None, "size"
-    for k in "RCL":
-        vals = [canon.parse_value(e["value"]) for e in two if e["type"] == k]
-        if vals and max(vals) / min(vals) > MAX_SPREAD:
-            return None, "spread"
+    if not filters_v2.spread_ok(netlist):
+        return None, "spread"
     elems = canon.canonicalize(elems)
     try:
         f_char = filters_v2.characteristic_frequency(elems)
@@ -312,7 +301,7 @@ def sample_chain(rng, max_tries=500):
 def sample_addon(rng, bases=BASES, max_tries=500):
     for _ in range(max_tries):
         name = rng.choice(bases)
-        base = _base(name, rng)
+        base = filters_v2.sample_any(name, rng)
         net = canon.parse_netlist(base["netlist"])[0]
         lines = [l for l in base["netlist"].splitlines() if l and not l.startswith("V")]
         # порядок применения фиксирован: слова «вход» и «выход» в запросе значат итоговые узлы схемы

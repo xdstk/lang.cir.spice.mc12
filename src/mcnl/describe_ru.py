@@ -60,7 +60,7 @@ class Style:
         return INNER_FORMS[self.inner][i].format(n[1:])
 
     def num(self, x):
-        s = f"{x:.4g}"
+        s = f"{x:.5g}"
         if "e" in s:
             s = f"{x:.10f}".rstrip("0").rstrip(".")
         return s.replace(".", ",") if self.comma else s
@@ -234,7 +234,7 @@ class Brief:
         return {"IN": "вх", "OUT": "вых", "0": self.gnd}.get(n) or self.inner.format(n[1:])
 
     def num(self, x):
-        s = f"{x:.4g}"
+        s = f"{x:.5g}"
         return s.replace(".", ",") if self.comma else s
 
     def value(self, t, value):
