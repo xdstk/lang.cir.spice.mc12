@@ -61,6 +61,11 @@ class Terse(unittest.TestCase):
         prompt = prompts_v2.describe_terse(ref, rng)
         self.assertEqual(len(prompt.split()) - len(prompt.split()[:-5]), 5)
 
+    def test_source_voltage_named(self):
+        rng = random.Random(9)
+        ref = {"class": "rc_lp", "params": {"R": 1e3, "C": 1e-7, "dc": 12}}
+        self.assertIn("12 В", prompts_v2.describe_terse(ref, rng))
+
     def test_every_topology(self):
         rng = random.Random(6)
         for topo in filters_v2.TOPOLOGIES_V2:

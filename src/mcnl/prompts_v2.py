@@ -105,7 +105,9 @@ def describe_terse(ref, rng):
     b.units = rng.random() < 0.3
     name = rng.choice(r["short_names"] + r.get("aliases", {}).get("names", [])[:3])
     vals = [b.value(k[0], canon.format_value(ref["params"][k])) for k in r["roles"] if k in ref["params"]]
-    return " ".join([name.lower() if rng.random() < 0.7 else name] + vals)
+    text = " ".join([name.lower() if rng.random() < 0.7 else name] + vals)
+    dc = ref["params"].get("dc", 0)  # постоянное напряжение входит в эталон, запрос обязан его назвать
+    return f"{text}, {b.source(canon.format_value(dc))}" if dc else text
 
 
 # ---------------------------------------------------------------- правки текста
