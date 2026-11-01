@@ -145,7 +145,8 @@ def _typo(s, rng):
 
 
 def _lower(s):
-    return re.sub(r"[А-ЯЁ]", lambda m: m.group().lower(), s, count=1)
+    """Строчная буква в начале запроса; единицы не трогает: МОм и мОм - разные величины."""
+    return re.sub(r"^[А-ЯЁ](?=[а-яё]{2})", lambda m: m.group().lower(), s)
 
 
 MUTATIONS = (("cyrillic_c", 0.15, lambda s, r: _cyrillic_c(s)), ("decimal", 0.10, lambda s, r: _swap_decimal(s)),
@@ -154,11 +155,11 @@ MUTATIONS = (("cyrillic_c", 0.15, lambda s, r: _cyrillic_c(s)), ("decimal", 0.10
              ("prefix", 0.08, lambda s, r: r.choice(PREFIXES) + s), ("suffix", 0.05, lambda s, r: s.rstrip(".") + "," + r.choice(SUFFIXES)))
 
 
-def mutate(prompt, rng):
-    """-> (запрос, список применённых правок)."""
+def mutate(prompt, rng, force=False):
+    """-> (запрос, список применённых правок). force - все правки текста сразу, без вступлений и хвостов (gen_family)."""
     used = []
     for name, p, fn in MUTATIONS:
-        if rng.random() < p:
+        if (force and name not in ("prefix", "suffix")) or (not force and rng.random() < p):
             new = fn(prompt, rng)
             if new != prompt:
                 prompt = new
