@@ -21,7 +21,9 @@ except ImportError:  # запуск как скрипта
 
 ROOT = Path(__file__).resolve().parents[2]
 FAMILIES = ("list", "table", "narrative", "path", "brief")
-ROLES = json.loads((ROOT / "data" / "roles_ru.json").read_text(encoding="utf-8"))["topologies"]
+_ROLE_FILE = json.loads((ROOT / "data" / "roles_ru.json").read_text(encoding="utf-8"))
+ROLES = _ROLE_FILE["topologies"]
+ROLES_ALL = {**ROLES, **_ROLE_FILE["topologies_v2"]}  # baseline и генератор v1 видят только ROLES
 
 # падежи: им., род., дат., вин., твор.
 CASES = ("nom", "gen", "dat", "acc", "ins")
@@ -198,7 +200,7 @@ def describe_a1(ref, rng):
     stages = ref["params"] if isinstance(ref["params"], list) else [dict(ref["params"], topology=ref["class"])]
 
     def stage_text(p):
-        r = ROLES[p["topology"]]
+        r = ROLES_ALL[p["topology"]]
         names = r.get("names_gain") if p.get("Ra") and r.get("names_gain") else r["names"]
         roles = [f"{r['roles'][k]} — {st.value(k[0], canon.format_value(v))}" for k, v in p.items()
                  if k in r["roles"]]
@@ -276,7 +278,7 @@ def describe_a1_brief(ref, rng):
     stages = ref["params"] if isinstance(ref["params"], list) else [dict(ref["params"], topology=ref["class"])]
 
     def stage(p):
-        r = ROLES[p["topology"]]
+        r = ROLES_ALL[p["topology"]]
         vals = [f"{r['short_roles'][k]} {b.value(k[0], canon.format_value(v))}" for k, v in p.items()
                 if k in r["short_roles"]]
         name = rng.choice(r["short_names"]) + (" с усилением" if p.get("Ra") and "names_gain" in r else "")

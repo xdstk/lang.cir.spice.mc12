@@ -6,16 +6,18 @@
 ожидаемые величины эталона - из узлового расчёта mna.py, как у каскадов. Структуры на нескольких ОУ и
 MFB совпадают со схемами дизайнера MC12 (data/designer, проверка изоморфизма в tests/test_filters_v2.py).
 """
+import inspect
 import math
 
 try:
-    from . import bench, canon, measure, mna
+    from . import bench, canon, measure, mna, sampler
     from .formulas import TWO_PI, _net, _v, db, fc_2nd_lp
 except ImportError:  # запуск как скрипта
     import bench
     import canon
     import measure
     import mna
+    import sampler
     from formulas import TWO_PI, _net, _v, db, fc_2nd_lp
 
 WIDE = (0.1, 1e9)  # развёртка для оценки характерной частоты
@@ -174,3 +176,24 @@ def reference(topology, params, ref_id=None):
     return {"id": ref_id or topology, "class": topology, "level": level, "params": params, "analytic": analytic,
             "netlist": canon.canonical_netlist(net), "expected": {k: m[k] for k in quantities},
             "quantities": quantities, "f_char": f_char}
+
+
+def sample(topology, rng, ranges=sampler.RANGES, max_tries=2000, ref_id=None):
+    """Случайные номиналы, ограничения sampler.acceptable -> (эталон, отвергнутые по причинам)."""
+    names = [p for p in inspect.signature(TOPOLOGIES_V2[topology][0]).parameters if p != "dc"]
+    rejected = {}
+    for _ in range(max_tries):
+        params = {n: sampler.pick(n[0], rng, ranges) for n in names}
+        try:
+            ref = reference(topology, params, ref_id)
+        except (ValueError, ZeroDivisionError, KeyError, TypeError):
+            rejected["formula"] = rejected.get("formula", 0) + 1
+            continue
+        if any(ref["expected"][k] is None for k in ref["quantities"]):
+            rejected["measure"] = rejected.get("measure", 0) + 1
+            continue
+        ok, why = sampler.acceptable(ref)
+        if ok:
+            return ref, rejected
+        rejected[why] = rejected.get(why, 0) + 1
+    raise RuntimeError(f"{topology}: не найдено допустимых номиналов за {max_tries} попыток")
