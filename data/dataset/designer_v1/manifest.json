@@ -1,0 +1,18 @@
+{
+ "seed": 20261101,
+ "schema": "mcnl.flt/1",
+ "files": {
+  "train.jsonl": {
+   "records": 200,
+   "sha256": "d1eff1294b48397b0a0e91373815f3f1a532d1dcecfb98a2027f847c209f7fcc"
+  },
+  "dev.jsonl": {
+   "records": 30,
+   "sha256": "1df4969d3c5752fddb677f979ebc3a13eba96c29d2887ae31e805029ddb4e772"
+  },
+  "test.jsonl": {
+   "records": 70,
+   "sha256": "88093940d40d1bd35799601d4d9a7962c1f0f0ad259dbc4a41dd4e4296b09ae3"
+  }
+ }
+}

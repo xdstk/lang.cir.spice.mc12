@@ -118,7 +118,7 @@
 - Значимые поля: `Type` (Low-Pass, High-Pass, Bandpass, Notch, Delay), `Response`, `<Тип> mode=2`, секции `[Low-Pass High-Pass Mode 2]` (Cutoff Frequency, Order) и `[Band Pass Notch Mode 2]` (Center Frequency, Order, Q), `<Тип> <Отклик> Circuits=` - стиль по звеньям: Sallen-Key=0, MFB=1, Tow-Thomas=2, Fleischer-Tow=3, KHN=4, Acker-Mossberg=5, DABP=6, Tow-Thomas 2=7. `Save As=Macro` создаёт файл по кнопке OK.
 - Побочные эффекты OK: файл попадает в `C:\MC12\LIBRARY` под автоматическим именем `<Т>_<Отклик>_<Стиль>_<f>_<порядок>.MAC` (например `L_B_T_1111_2.MAC`), рядом `*_MAC.inx`; `Auto Macro Name=False` и `Macro Name=` из файла в этой проверке не сработали, и MC12 перезаписал `Active.flt`. Отмена файл не меняет.
 - Правка файла: только побайтово (Python, режим `rb`). `sed -i` из Git Bash убрал CR из строк.
-- Запуск дизайнера из командной строки в руководстве не описан; нажатие OK автоматизировано только через GUI в этой проверке, из своей программы не проверялось.
+- Запуск дизайнера из командной строки в руководстве не описан; открытие диалога и OK выполняются сообщениями Windows, без скриншотов (проверено, docs/designer_mode.md).
 
 Семь схем (`data/designer/*.net`, ОУ заменён на `OPAMP_IDEAL`, питание опущено): все разобраны `cir2spice`, входят в класс и посчитаны в MC12 через обвязку.
 

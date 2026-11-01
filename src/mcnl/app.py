@@ -102,6 +102,31 @@ def run(prompt=None, translator=None, netlist=None, outdir=None, name="circuit",
     return rep
 
 
+def run_designer(prompt, translator, outdir=None, name="filter"):
+    """Режим дизайнера: запрос -> mcnl.flt/1 -> дизайнер MC12 -> .CIR (docs/designer_mode.md)."""
+    from mcnl import designer
+    outdir = Path(outdir or ROOT / "out" / "app")
+    rep = {"prompt": prompt, "model": getattr(translator, "name", None), "messages": []}
+    out = translator.translate(prompt)
+    rep["output"] = out
+    refused = score.parse_refusal(out, "ir")
+    if refused:
+        rep["refused"] = {"code": refused[0], "reason": refused[1]}
+        rep["messages"].append(f"схема не построена: {refused[1] or refused[0]}")
+        return rep
+    spec, errs = designer.from_json(out)
+    if errs:
+        rep["messages"] += errs
+        return rep
+    rep["spec"] = spec
+    rep.update(designer.run(spec, outdir))
+    rep["messages"] += rep["notes"]
+    cir = outdir / f"{name}.cir"
+    spice2cir.write(cir, spice2cir.build(rep["netlist"], spec.get("fc") or spec.get("f0"), name))
+    rep["cir"] = str(cir)
+    return rep
+
+
 def main(argv):
     def opt(key, default=None):
         return argv[argv.index(key) + 1] if key in argv else default
