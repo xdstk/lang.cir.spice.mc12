@@ -10,6 +10,7 @@
 """
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -148,8 +149,30 @@ def build_schemes(outdir):
     return refs
 
 
+def build_prompts(prompt_file, outdir):
+    """Запросы внешней модели (порядок - как в task.txt) -> mc12_real.jsonl и манифест с SHA-256."""
+    outdir = Path(outdir)
+    refs = [json.loads(l) for l in (outdir / "schemes.jsonl").read_text(encoding="utf-8").splitlines()]
+    lines = [re.sub(r"^\d+\.\s*", "", l.strip()) for l in Path(prompt_file).read_text(encoding="utf-8-sig").splitlines() if l.strip()]
+    if len(lines) != len(refs):
+        raise ValueError(f"запросов {len(lines)}, схем {len(refs)}")
+    recs = []
+    for r, p in zip(refs, lines):
+        recs.append({"id": r["id"], "circuit_id": r["circuit_id"], "split": "mc12_real", "task": "A", "topology": r["id"], "level": r["level"],
+                     "family": "mc12_real", "source": r["source"], "prompt": p, "netlist": r["netlist"],
+                     "ir": canon.to_ir(canon.parse_netlist(r["netlist"])[0]), "f_char": r["f_char"], "quantities": [],
+                     "expected": {}, "measured": r["measured"], "admission": r["admission"]})
+    data = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in recs).encode("utf-8")
+    (outdir / "mc12_real.jsonl").write_bytes(data)
+    (outdir / "manifest.json").write_text(json.dumps({"frozen": "2026-11-01", "files": {"mc12_real.jsonl": {
+        "records": len(recs), "sha256": hashlib.sha256(data).hexdigest()}}}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8", newline="\n")
+    return recs
+
+
 def main(argv):
     sys.stdout.reconfigure(encoding="utf-8")
+    if argv[1] == "prompts":
+        print(len(build_prompts(argv[2], argv[3])))
     if argv[1] == "schemes":
         for r in build_schemes(argv[2]):
             m = r.get("measured") or {}

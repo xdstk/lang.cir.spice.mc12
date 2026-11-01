@@ -100,7 +100,7 @@ class Data(unittest.TestCase):
     def test_frozen_files(self):
         d = ROOT / "data" / "dataset" / "designer_v1"
         m = json.loads((d / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual({k: v["records"] for k, v in m["files"].items()}, {"train.jsonl": 200, "dev.jsonl": 30, "test.jsonl": 70})
+        self.assertEqual({k: v["records"] for k, v in m["files"].items()}, {"train.jsonl": 200, "dev.jsonl": 30, "test.jsonl": 70, "llm_specs.jsonl": 30})
 
 
 class Mc12Real(unittest.TestCase):
