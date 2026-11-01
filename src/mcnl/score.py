@@ -28,9 +28,25 @@ except ImportError:  # запуск как скрипта
     import measure
 
 LEVELS = ("S0", "S1", "S2", "S3", "S4")
+REFUSE_CODES = ("out_of_class", "ambiguous", "needs_design")
 
 
 # ---------------------------------------------------------------- разбор ответа (S0)
+def parse_refusal(output, fmt="netlist"):
+    """Отказ модели (generator_v2_spec, раздел 2.4) -> (код, причина) или None, если это не отказ.
+    Неизвестный код - тоже не отказ: ответ уйдёт в обычный разбор и получит ошибку S0."""
+    txt = (output or "").strip()
+    if fmt == "ir":
+        try:
+            d = json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", txt))
+        except json.JSONDecodeError:
+            return None
+        code = d.get("refuse") if isinstance(d, dict) else None
+        return (code, str(d.get("reason", ""))) if code in REFUSE_CODES else None
+    m = re.match(r"REFUSE\s+(\w+)\s*:?\s*(.*)", txt.split("\n", 1)[0].strip())
+    return (m.group(1), m.group(2).strip()) if m and m.group(1) in REFUSE_CODES else None
+
+
 def parse_output(output, fmt):
     """Ответ модели -> (элементы или None, ошибки)."""
     if fmt == "ir":
@@ -106,22 +122,32 @@ def value_error(ref, test, topo_mapping):
 # ---------------------------------------------------------------- оценка
 def score_all(refs, preds, workdir, timeout=600):
     """refs: {id: эталон}; preds: [ответ]. Один запуск MC12 на все ответы, прошедшие S0."""
-    rows, cases = [], []
+    rows, cases, ref_cases, out = [], [], {}, []
     for i, p in enumerate(preds):
         ref = refs[p["id"]]
+        fmt = p.get("format", "netlist")
+        refused = parse_refusal(p.get("output"), fmt)
+        if ref.get("refuse"):  # эталон - отказ: уровни S не считаются, в сводке - отдельный блок
+            out.append((i, {"id": p["id"], "model": p.get("model"), "format": fmt, "class": ref.get("class"),
+                            "level": ref.get("level"), "refuse_ref": ref["refuse"],
+                            "refuse_pred": refused[0] if refused else None}))
+            continue
         ref_el, err = canon.parse_netlist(ref["netlist"])
         if err:
             raise ValueError(f"эталон {p['id']} не разбирается: {err}")
-        test_el, perr = parse_output(p.get("output"), p.get("format", "netlist"))
-        row = {"id": p["id"], "model": p.get("model"), "format": p.get("format", "netlist"),
-               "class": ref.get("class"), "level": ref.get("level"),
+        test_el, perr = (None, ["отказ"]) if refused else parse_output(p.get("output"), fmt)
+        row = {"id": p["id"], "model": p.get("model"), "format": fmt,
+               "class": ref.get("class"), "level": ref.get("level"), "refuse_ref": None,
+               "refuse_pred": refused[0] if refused else None,
                "S0": test_el is not None, "parse_errors": perr}
-        rows.append((row, ref, ref_el, test_el))
+        rows.append((i, row, ref, ref_el, test_el))
         if test_el is not None:
             cases.append((f"p{i:05d}", test_el, ref.get("f_char")))
+            if p["id"] not in ref_cases:  # кривая эталона - тем же MC12 на той же сетке
+                ref_cases[p["id"]] = f"r{len(ref_cases):05d}"
+                cases.append((ref_cases[p["id"]], ref_el, ref.get("f_char")))
     runs = bench.run(cases, workdir, timeout=timeout) if cases else {}
-    out = []
-    for i, (row, ref, ref_el, test_el) in enumerate(rows):
+    for i, row, ref, ref_el, test_el in rows:
         r = runs.get(f"p{i:05d}") if test_el is not None else None
         row["S1"] = bool(row["S0"] and r and r["ok"])
         row["run_messages"] = r["messages"] if r else []
@@ -134,18 +160,27 @@ def score_all(refs, preds, workdir, timeout=600):
             m = measure.from_output(r["output"])
             behavior, detail = measure.within_tolerance(ref["measured"], m, ref["quantities"])
             row["measured"] = m
+        curve, curve_detail = False, {}
+        rr = runs.get(ref_cases.get(row["id"]))
+        if row["S1"] and rr and rr["ok"]:
+            curve, curve_detail = measure.curve_match(measure.read_curve(rr["output"]),
+                                                      measure.read_curve(r["output"]))
         row["behavior"] = behavior
         row["behavior_detail"] = {k: list(v) for k, v in detail.items()}
+        row["curve"] = curve
+        row["curve_detail"] = curve_detail
         row["S2"] = row["S1"] and row["topology"]
         row["S3"] = row["S2"] and row["values"]
         row["S4"] = row["S3"] and behavior
+        row["S4c"] = row["S3"] and curve  # S4 версии v2; старый S4 - для сравнения с таблицами v1
         row["f1"] = f1(ref_el, test_el) if test_el is not None else 0.0
-        row["error"] = classify_error(row, ref_el, test_el, topo)
+        row["error"] = "false_refusal" if row["refuse_pred"] else classify_error(row, ref_el, test_el, topo)
         # малосигнальный AC с идеальным ОУ не видит знака обратной связи: схема с перепутанными
         # входами даёт ту же АЧХ, хотя реальная ушла бы в насыщение - функционально не засчитывать
         row["functional"] = row["S1"] and behavior and row["error"] != "swapped_opamp_inputs"
-        out.append(row)
-    return out
+        row["functional_c"] = row["S1"] and curve and row["error"] != "swapped_opamp_inputs"
+        out.append((i, row))
+    return [r for _, r in sorted(out, key=lambda x: x[0])]
 
 
 def classify_error(row, ref_el, test_el, topo):
@@ -176,9 +211,15 @@ def wilson(k, n, z=1.96):
 
 def summarize(rows):
     def block(rs):
+        rs, refuse = [r for r in rs if not r.get("refuse_ref")], [r for r in rs if r.get("refuse_ref")]
         n = len(rs)
         res = {"n": n}
-        for lvl in LEVELS + ("functional",):
+        if refuse:
+            res["refusals"] = {"n": len(refuse), "caught": sum(1 for r in refuse if r["refuse_pred"]),
+                               "code_correct": sum(1 for r in refuse if r["refuse_pred"] == r["refuse_ref"]),
+                               "missed": sum(1 for r in refuse if not r["refuse_pred"])}
+        res["false_refusals"] = sum(1 for r in rs if r.get("refuse_pred"))
+        for lvl in LEVELS + ("S4c", "functional", "functional_c"):
             k = sum(1 for r in rs if r[lvl])
             lo, hi = wilson(k, n)
             res[lvl] = {"k": k, "rate": k / n if n else None, "ci95": [lo, hi]}

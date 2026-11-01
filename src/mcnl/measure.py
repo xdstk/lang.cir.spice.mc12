@@ -43,6 +43,12 @@ BP_DB = 25.0     # оба края ниже максимума больше че
 # допуски уровня S4 (раздел 6): частоты - относительные, уровни - дБ, Q - относительный
 TOL = {"fc": ("rel", 5e-3), "f0": ("rel", 5e-3), "f_u": ("rel", 5e-3),
        "k_dc_db": ("abs", 0.1), "k_pass_db": ("abs", 0.1), "Q": ("rel", 1e-2), "type": ("eq", None)}
+# сравнение всей кривой (docs/generator_v2_spec.md, раздел 6)
+# порог подобран на 105 схемах: ложных отказов нет, отклонение номинала на 2% и больше обнаруживается,
+# кроме элементов, не влияющих на кривую (висящие и т.п.); 1 дБ / 5° пропускали 92% отклонений на 5%
+CURVE_DB = 0.1
+CURVE_DEG = 0.5
+CURVE_FLOOR_DB = 60.0
 
 
 def _clean(f, db, ph):
@@ -175,6 +181,33 @@ def from_output(path):
     except KeyError:
         pass
     return measure(mcout.column(o, "F"), mcout.column(o, "DB(V(OUT))"), ph)
+
+
+def read_curve(path):
+    """(f, дБ, градусы) из вывода MC12."""
+    o = mcout.read(path)
+    return _clean(mcout.column(o, "F"), mcout.column(o, "DB(V(OUT))"), mcout.column(o, "PH(V(OUT))"))
+
+
+def curve_diff(ref, test):
+    """Отклонение кривой ответа от эталона на одной сетке: (макс. |Δ дБ|, макс. |Δ фазы|) в точках, где
+    эталон не ниже CURVE_FLOOR_DB от максимума (глубже - шум вывода с 4 значащими цифрами).
+    Сетки разной длины -> (None, None)."""
+    fr, dbr, phr = ref
+    ft, dbt, pht = test
+    if len(fr) != len(ft) or not fr or any(abs(a - b) > 1e-3 * a for a, b in zip(fr, ft)):
+        return None, None
+    top = max(dbr)
+    keep = [i for i, v in enumerate(dbr) if v >= top - CURVE_FLOOR_DB]
+    return (max(abs(dbr[i] - dbt[i]) for i in keep),  # первая точка фазы у MC12 - NA
+            max((abs((phr[i] - pht[i] + 180) % 360 - 180) for i in keep
+                 if phr[i] is not None and pht[i] is not None), default=0.0))
+
+
+def curve_match(ref, test):
+    """-> (совпала ли кривая в допуске CURVE_DB / CURVE_DEG, {max_db, max_deg})."""
+    d, p = curve_diff(ref, test)
+    return (d is not None and d <= CURVE_DB and p <= CURVE_DEG), {"max_db": d, "max_deg": p}
 
 
 def within_tolerance(ref, test, keys):
