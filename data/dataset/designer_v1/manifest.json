@@ -13,6 +13,10 @@
   "test.jsonl": {
    "records": 70,
    "sha256": "88093940d40d1bd35799601d4d9a7962c1f0f0ad259dbc4a41dd4e4296b09ae3"
+  },
+  "llm_specs.jsonl": {
+   "records": 30,
+   "sha256": "303e006058b26b75c84bc45fb4051b5d770aec3bd3f68ae81ea896db22379f98"
   }
  }
 }

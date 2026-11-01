@@ -102,7 +102,7 @@ def run(prompt=None, translator=None, netlist=None, outdir=None, name="circuit",
     return rep
 
 
-def run_designer(prompt, translator, outdir=None, name="filter"):
+def run_designer(prompt, translator, outdir=None, name="filter", open_mc12=False):
     """Режим дизайнера: запрос -> mcnl.flt/1 -> дизайнер MC12 -> .CIR (docs/designer_mode.md)."""
     from mcnl import designer
     outdir = Path(outdir or ROOT / "out" / "app")
@@ -124,6 +124,9 @@ def run_designer(prompt, translator, outdir=None, name="filter"):
     cir = outdir / f"{name}.cir"
     spice2cir.write(cir, spice2cir.build(rep["netlist"], spec.get("fc") or spec.get("f0"), name))
     rep["cir"] = str(cir)
+    if open_mc12:
+        exe = mc12run.find_exe()
+        subprocess.Popen([exe, str(cir)], cwd=str(Path(exe).parent))
     return rep
 
 

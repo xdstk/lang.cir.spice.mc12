@@ -19,7 +19,7 @@ if __package__ in (None, ""):
 from mcnl import designer, prompts_v2  # noqa: E402
 
 SPLITS = {"train": 200, "dev": 30, "test": 70}
-FIELDS = ("type", "response", "order", "fc", "f0", "Q", "style", "ripple_db", "gain_db")
+FIELDS = ("type", "response", "order", "fc", "f0", "Q", "style", "ripple_db", "gain_db", "gain")
 TYPE_WORDS = {"LP": ["ФНЧ", "фильтр нижних частот", "фнч", "НЧ-фильтр", "low-pass"],
               "HP": ["ФВЧ", "фильтр верхних частот", "фвч", "ВЧ-фильтр", "high-pass"],
               "BP": ["полосовой фильтр", "полосовой", "ПФ", "bandpass"],
@@ -85,14 +85,14 @@ def describe(spec, rng):
 def parse_rules(prompt):
     """Разбор ключевыми словами -> спецификация; неразобранные поля None."""
     p = prompt.lower().replace("ё", "е")
-    spec = {"schema": designer.SCHEMA, "type": None, "response": None, "order": None, "style": None, "ripple_db": None, "gain_db": None}
+    spec = {"schema": designer.SCHEMA, "type": None, "response": None, "order": None, "style": None, "ripple_db": None, "gain_db": None, "gain": None}
     for t, words in TYPE_WORDS.items():
         if any(w.lower() in p for w in words):
             spec["type"] = t
             break
     spec["response"] = ("Inverse Chebyshev" if re.search("инверс|обратн", p) else "Chebyshev" if "чебыш" in p or "chebyshev" in p
                         else "Butterworth" if "баттерворт" in p or "butterworth" in p else None)
-    m = re.search(r"(\d+)(?:-го)?\s*порядка|порядок\s*(\d+)", p)
+    m = re.search(r"(\d+)(?:-[а-я]+)?\s*порядо?к|порядок\s*(\d+)", p)
     if m:
         spec["order"] = int(m.group(1) or m.group(2))
     m = re.search(r"(\d+(?:[.,]\d+)?)\s*(кгц|гц|мгц)", p)
@@ -106,9 +106,9 @@ def parse_rules(prompt):
     if m:
         spec["ripple_db"] = float(m.group(1).replace(",", "."))
         spec["ripple_db"] = int(spec["ripple_db"]) if spec["ripple_db"] == int(spec["ripple_db"]) else spec["ripple_db"]
-    m = re.search(r"(?:усиление|ku)\s*(\d+)", p)
+    m = re.search(r"(?:усиление|ku)\s*(\d+)(\s*дб)?", p)
     if m:
-        spec["gain_db"] = int(m.group(1))
+        spec["gain_db" if m.group(2) else "gain"] = int(m.group(1))  # без единицы - в разах
     for s, words in STYLE_WORDS.items():
         if any(w.lower().replace("ё", "е") in p for w in words):
             spec["style"] = s
