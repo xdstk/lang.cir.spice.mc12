@@ -37,9 +37,12 @@ LABELS = DIR / "labels.md"
 CLASSES = {"A", "A1", "B", "out", "unclear", "?"}
 DEV_AUTHORS = {"A01"}  # автор работы знает шаблоны генератора: его запросы - dev, не тест
 # C01, C02, … - запросы, написанные языковой моделью (внешней или Claude): это синтетика, не человеческий тест;
-# отдельная выборка paraphrase (для v2 и отладки), в human_test не попадает
-SPLITS = ("human_dev", "human_test", "paraphrase")
-AUTHOR_RE = r"[AC]\d{2}"
+# отдельная выборка paraphrase (для v2 и отладки), в human_test не попадает.
+# D01 - запросы внешней языковой модели, отобранные автором: выборка llm_test, главная метрика (docs/generator_v2_spec.md);
+# у неё out, unclear и B - не пропуск, а эталон-отказ; llm_test_chatty - те же схемы с исходной разговорной формой запроса
+SPLITS = ("human_dev", "human_test", "paraphrase", "llm_test", "llm_test_chatty")
+AUTHOR_RE = r"[ACD]\d{2}"
+REFUSE_BY_CLASS = {"out": "out_of_class", "unclear": "ambiguous", "B": "needs_design"}
 QUANTITIES = {"LP": ["type", "k_pass_db", "fc"], "HP": ["type", "k_pass_db", "fc"],
               "BP": ["type", "k_pass_db", "f0", "Q"], "BS": ["type", "k_pass_db", "f0", "Q"],
               "flat": ["type", "k_pass_db"]}
@@ -58,7 +61,7 @@ def import_file(path, author):
     """CSV со столбцом prompt (как collect_template.csv) или текст - по запросу в строке."""
     path = Path(path)
     if not re.fullmatch(AUTHOR_RE, author):
-        raise ValueError("код автора - A01, A02, … (люди) или C01 (запросы Claude)")
+        raise ValueError("код автора - A01, A02, … (люди), C01 (запросы LLM для отладки) или D01 (запросы LLM для llm_test)")
     text = path.read_text(encoding="utf-8-sig")
     if path.suffix.lower() == ".csv":
         rows = list(csv.DictReader(text.splitlines()))
@@ -95,15 +98,18 @@ def parse_labels(text):
         cls = re.search(r"^class:\s*(\S+)", body, re.M)
         net = re.search(r"```netlist\n(.*?)```", body, re.S)
         note = re.search(r"^note:\s*(.*)$", body, re.M)
+        clean = re.search(r"^clean:\s*(.*)$", body, re.M)
         out[m.group(1)] = {"author": m.group(2), "prompt": prompt, "class": cls.group(1) if cls else "?",
+                           "clean": clean.group(1).strip() if clean else "",
                            "netlist": net.group(1).strip() + "\n" if net and net.group(1).strip() else "",
                            "note": note.group(1).strip() if note else ""}
     return out
 
 
-def _section(rec, cls, netlist, note=""):
+def _section(rec, cls, netlist, note="", clean=""):
     quoted = "\n".join("> " + l for l in rec["prompt"].splitlines())
-    return (f"\n## {rec['id']} · {rec['author']}\n{quoted}\nclass: {cls}\n```netlist\n{netlist.strip()}\n```\n"
+    return (f"\n## {rec['id']} · {rec['author']}\n{quoted}\n" + (f"clean: {clean}\n" if clean else "")
+            + f"class: {cls}\n```netlist\n{netlist.strip()}\n```\n"
             + (f"note: {note}\n" if note else ""))
 
 
@@ -150,17 +156,23 @@ def reference(hid, lab):
     q = QUANTITIES[m["type"]]
     n_op = sum(e["type"] == "OPAMP" for e in elems)
     return {"id": hid, "circuit_id": hashlib.sha256(netlist.encode()).hexdigest()[:16], "author": lab["author"],
-            "split": ("paraphrase" if lab["author"].startswith("C") else
+            "split": ("paraphrase" if lab["author"].startswith("C") else "llm_test" if lab["author"].startswith("D") else
                       "human_dev" if lab["author"] in DEV_AUTHORS else "human_test"), "task": lab["class"],
             "family": "human", "topology": f"human:{m['type']}", "level": "L1" if n_op == 0 else "L2" if n_op == 1 else "L3",
-            "prompt": lab["prompt"], "netlist": netlist, "ir": canon.to_ir(elems), "f_char": f_char,
+            "prompt": lab.get("clean") or lab["prompt"], "prompt_orig": lab["prompt"], "netlist": netlist, "ir": canon.to_ir(elems), "f_char": f_char,
             "quantities": q, "expected": {k: m[k] for k in q}, "note": lab["note"]}
 
 
 def build(outdir=None, workdir=None):
     labels = parse_labels(LABELS.read_text(encoding="utf-8"))
     refs, report = [], {"skipped": {}, "errors": []}
+    refusals = []
     for hid, lab in labels.items():
+        if lab["author"].startswith("D") and lab["class"] in REFUSE_BY_CLASS:
+            refusals.append({"id": hid, "author": lab["author"], "split": "llm_test", "task": lab["class"], "family": "human",
+                             "topology": "refuse", "level": None, "prompt": lab["prompt"], "refuse": REFUSE_BY_CLASS[lab["class"]],
+                             "note": lab["note"]})
+            continue
         if lab["class"] not in ("A", "A1"):
             report["skipped"][lab["class"]] = report["skipped"].get(lab["class"], 0) + 1
             continue
@@ -169,12 +181,18 @@ def build(outdir=None, workdir=None):
         except (ValueError, KeyError, ZeroDivisionError) as err:
             report["errors"].append(str(err))
     admitted = pilot.admit(refs, Path(workdir or ROOT / "out" / "human_runs")) if refs else []
+    for r in admitted:  # llm_test: Q > 10, усиление у предела ОУ, fc выше 100 МГц - вне допуска к формуле, но схема считается
+        if r["split"] == "llm_test" and r["admission"]["mc12_run"] and not r["admission"]["admitted"]:
+            r["admission"].update(admitted=True, relaxed=True)  # S4c сравнивает кривые MC12 и формулы не требует
     report["rejected"] = [{"id": r["id"], "admission": r["admission"]} for r in admitted if not r["admission"]["admitted"]]
     outdir = Path(outdir or DIR / "v1")
     outdir.mkdir(parents=True, exist_ok=True)
     manifest = {"files": {}, "report": report}
+    good = [r for r in admitted if r["admission"]["admitted"]] + refusals
+    good += [dict(r, id=r["id"] + "c", split="llm_test_chatty", prompt=r["prompt_orig"]) for r in good
+             if r["split"] == "llm_test" and r.get("prompt_orig") and r["prompt_orig"] != r["prompt"]]
     for split in SPLITS:
-        recs = [r for r in admitted if r["admission"]["admitted"] and r["split"] == split]
+        recs = sorted((r for r in good if r["split"] == split), key=lambda r: r["id"])
         data = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in recs).encode("utf-8")
         (outdir / f"{split}.jsonl").write_bytes(data)
         manifest["files"][f"{split}.jsonl"] = {"records": len(recs), "sha256": hashlib.sha256(data).hexdigest()}

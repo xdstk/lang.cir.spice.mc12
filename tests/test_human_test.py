@@ -79,6 +79,17 @@ class ImportAndLabels(Base):
         # запросы, написанные Claude, - синтетика: в human_test не попадают
         self.assertEqual(human_test.reference("H0009", dict(lab, author="C01"))["split"], "paraphrase")
 
+    def test_clean_form_in_labels(self):
+        p = self.write_csv("d01.csv", ["RC ФНЧ: R 1к, C 100н - хватит?"])
+        rec = human_test.import_file(p, "D01")[0]
+        text = human_test.LABELS_HEAD + human_test._section(rec, "A", "V1 IN 0 DC 0\nR1 IN OUT 1k\nC1 OUT 0 100n\n",
+                                                            clean="RC ФНЧ: R 1к, C 100н")
+        lab = human_test.parse_labels(text)["H0001"]
+        self.assertEqual(lab["clean"], "RC ФНЧ: R 1к, C 100н")
+        r = human_test.reference("H0001", lab)
+        self.assertEqual((r["split"], r["prompt"], r["prompt_orig"]),
+                         ("llm_test", "RC ФНЧ: R 1к, C 100н", "RC ФНЧ: R 1к, C 100н - хватит?"))
+
 
 def mc12_available():
     try:
@@ -104,6 +115,19 @@ class Build(Base):
         rec = json.loads((WORK / "v1" / "human_test.jsonl").read_text(encoding="utf-8"))
         self.assertTrue(rec["admission"]["admitted"])
         self.assertEqual(rec["measured"]["type"], "flat")
+
+    def test_build_llm_test(self):
+        human_test.import_file(self.write_csv("d01.csv", ["RC ФНЧ: R 1к, C 100н?", "усилитель на КТ315", "фнч на 1 кГц"]), "D01")
+        raw = human_test.read_raw()
+        text = (human_test.LABELS_HEAD
+                + human_test._section(raw[0], "A", "V1 IN 0 DC 0\nR1 IN OUT 1k\nC1 OUT 0 100n\n", clean="RC ФНЧ: R 1к, C 100н")
+                + human_test._section(raw[1], "out", "") + human_test._section(raw[2], "B", ""))
+        human_test.LABELS.write_text(text, encoding="utf-8")
+        m = human_test.build(WORK / "v1", WORK / "runs")
+        self.assertEqual(m["files"]["llm_test.jsonl"]["records"], 3)
+        self.assertEqual(m["files"]["llm_test_chatty.jsonl"]["records"], 1)
+        recs = [json.loads(l) for l in (WORK / "v1" / "llm_test.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([r.get("refuse") for r in recs], [None, "out_of_class", "needs_design"])
 
 
 if __name__ == "__main__":
