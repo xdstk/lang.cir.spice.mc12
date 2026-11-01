@@ -47,6 +47,11 @@ def run(prompt=None, translator=None, netlist=None, outdir=None, name="circuit",
     else:
         out, fmt = netlist, "netlist"
     rep["output"] = out
+    refused = score.parse_refusal(out, fmt) if netlist is None else None
+    if refused:
+        rep["refused"] = {"code": refused[0], "reason": refused[1]}
+        rep["messages"].append(f"схема не построена: {refused[1] or refused[0]}")
+        return rep
     elems, errs = score.parse_output(out, fmt)
     rep["parse_errors"] = errs
     if elems is None:
