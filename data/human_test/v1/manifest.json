@@ -10,7 +10,15 @@
   },
   "paraphrase.jsonl": {
    "records": 38,
-   "sha256": "5ea40719e92d02e9d2ca69efedc83d9a0ac74d353596670b1fe0b5c3256cb459"
+   "sha256": "e049359b77dd2ff30f30ae0df18beb6fc1df49f0b3234da931fee8224747e3e7"
+  },
+  "llm_test.jsonl": {
+   "records": 100,
+   "sha256": "ca02e0c8ccbab6b05e209485d9297b4c79d52f92e85649e6e027f95105279c5f"
+  },
+  "llm_test_chatty.jsonl": {
+   "records": 35,
+   "sha256": "8082a21907dc0286902fa825a5095f9f8b9067fe68ce04f685c0f6ecc560937d"
   }
  },
  "report": {

@@ -67,7 +67,7 @@ def main(argv):
         print(f"{key}  n={a['n']}  " + "  ".join(
             f"{lvl} {a[lvl]['rate']:.3f} [{a[lvl]['ci95'][0]:.3f}-{a[lvl]['ci95'][1]:.3f}]"
             for lvl in score.LEVELS + ("functional",)))
-        print("  by task:", {t: round(v["S3"]["rate"], 3) for t, v in s["by_task"].items()},
+        print("  by task:", {t: round(v["S3"]["rate"], 3) for t, v in s["by_task"].items() if v["n"]},
               " errors:", a["errors"])
     print(f"-> {out}")
 
