@@ -60,6 +60,7 @@
   `pilot.py` - пилот эталонов и допуск в датасет.
 - Датасет v2 (docs/generator_v2_spec.md): `filters_v2.py` - новые топологии (отдельно от formulas.TOPOLOGIES, v1 воспроизводится);
   `compose.py` - цепочки и добавки, запросы к ним; `prompts_v2.py` - семейства freeform, terse, правки текста;
+  `edge_cases.py` - странные схемы и отказы;
   главная метрика - data/dataset/llm_test_v1 (заморожена).
 - Генератор: `sampler.py` - номиналы; `cascade.py` - каскады L3; `describe_ru.py` - русские
   запросы и их обратный разбор (словарь ролей - data/roles_ru.json); `generate.py` - сборка.
