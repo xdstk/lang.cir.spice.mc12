@@ -73,7 +73,7 @@ def parse_freeform(prompt):
             return "OUT"
         if s.startswith("земл"):
             return "0"
-        return "N" + re.sub(r"\W", "_", s.split()[-1].upper())
+        return "N" + s.split()[-1].strip(",.").upper()
 
     lines, count, source = [], {}, "0"
     for seg in prompt.split(";"):
