@@ -1,0 +1,13 @@
+{
+ "frozen": "2026-11-01",
+ "files": {
+  "llm_test.jsonl": {
+   "records": 100,
+   "sha256": "ca02e0c8ccbab6b05e209485d9297b4c79d52f92e85649e6e027f95105279c5f"
+  },
+  "llm_test_chatty.jsonl": {
+   "records": 35,
+   "sha256": "8082a21907dc0286902fa825a5095f9f8b9067fe68ce04f685c0f6ecc560937d"
+  }
+ }
+}

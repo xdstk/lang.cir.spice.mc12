@@ -3,6 +3,7 @@
 Работают в out/test_human (реальные data/human_test не трогают); сборка - с MC12 (иначе пропуск).
 Запуск из корня репозитория:  python -m unittest discover -s tests
 """
+import hashlib
 import json
 import shutil
 import sys
@@ -78,6 +79,15 @@ class ImportAndLabels(Base):
         self.assertEqual(human_test.reference("H0008", dict(lab, author="A01"))["split"], "human_dev")
         # запросы, написанные Claude, - синтетика: в human_test не попадают
         self.assertEqual(human_test.reference("H0009", dict(lab, author="C01"))["split"], "paraphrase")
+
+    def test_llm_test_frozen(self):
+        d = ROOT / "data" / "dataset" / "llm_test_v1"
+        m = json.loads((d / "manifest.json").read_text(encoding="utf-8"))
+        for name, info in m["files"].items():
+            b = (d / name).read_bytes()
+            self.assertEqual(hashlib.sha256(b).hexdigest(), info["sha256"], name)
+            self.assertEqual(b.count(b"\n"), info["records"])
+        self.assertEqual(m["files"]["llm_test.jsonl"]["records"], 100)
 
     def test_clean_form_in_labels(self):
         p = self.write_csv("d01.csv", ["RC ФНЧ: R 1к, C 100н - хватит?"])

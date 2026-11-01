@@ -34,6 +34,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DIR = ROOT / "data" / "human_test"
 RAW = DIR / "raw.jsonl"
 LABELS = DIR / "labels.md"
+FROZEN_LLM = ROOT / "data" / "dataset" / "llm_test_v1"  # заморожено: сборка эти выборки не пишет
 CLASSES = {"A", "A1", "B", "out", "unclear", "?"}
 DEV_AUTHORS = {"A01"}  # автор работы знает шаблоны генератора: его запросы - dev, не тест
 # C01, C02, … - запросы, написанные языковой моделью (внешней или Claude): это синтетика, не человеческий тест;
@@ -185,13 +186,14 @@ def build(outdir=None, workdir=None):
         if r["split"] == "llm_test" and r["admission"]["mc12_run"] and not r["admission"]["admitted"]:
             r["admission"].update(admitted=True, relaxed=True)  # S4c сравнивает кривые MC12 и формулы не требует
     report["rejected"] = [{"id": r["id"], "admission": r["admission"]} for r in admitted if not r["admission"]["admitted"]]
+    frozen = () if outdir else ("llm_test", "llm_test_chatty") if FROZEN_LLM.exists() else ()
     outdir = Path(outdir or DIR / "v1")
     outdir.mkdir(parents=True, exist_ok=True)
     manifest = {"files": {}, "report": report}
     good = [r for r in admitted if r["admission"]["admitted"]] + refusals
     good += [dict(r, id=r["id"] + "c", split="llm_test_chatty", prompt=r["prompt_orig"]) for r in good
              if r["split"] == "llm_test" and r.get("prompt_orig") and r["prompt_orig"] != r["prompt"]]
-    for split in SPLITS:
+    for split in (x for x in SPLITS if x not in frozen):
         recs = sorted((r for r in good if r["split"] == split), key=lambda r: r["id"])
         data = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in recs).encode("utf-8")
         (outdir / f"{split}.jsonl").write_bytes(data)
