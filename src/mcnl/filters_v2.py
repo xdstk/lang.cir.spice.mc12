@@ -21,6 +21,8 @@ except ImportError:  # запуск как скрипта
     from formulas import TWO_PI, _net, _v, db, fc_2nd_lp
 
 WIDE = (0.1, 1e9)  # развёртка для оценки характерной частоты
+EXACT_SHARE = 0.3  # доля номиналов не из рядов, как у дизайнера MC12 (раздел 3)
+MAX_SPREAD = 1000.0  # разброс номиналов одного типа внутри схемы
 
 
 def _f0(L, C):
@@ -178,16 +180,48 @@ def reference(topology, params, ref_id=None):
             "quantities": quantities, "f_char": f_char}
 
 
+def pick(kind, rng, ranges=sampler.RANGES):
+    """Номинал v2: значение ряда или точное, 4-5 значащих цифр."""
+    if rng.random() >= EXACT_SHARE:
+        return sampler.pick(kind, rng, ranges)
+    lo, hi = ranges[kind]
+    x = 10 ** rng.uniform(math.log10(lo), math.log10(hi))
+    return float(f"{x:.{rng.choice([3, 4])}e}")
+
+
+def spread_ok(netlist):
+    elems = canon.parse_netlist(netlist)[0]
+    for k in "RCL":
+        vals = [canon.parse_value(e["value"]) for e in elems if e["type"] == k]
+        if vals and max(vals) / min(vals) > MAX_SPREAD:
+            return False
+    return True
+
+
+def sample_any(topology, rng, max_tries=2000):
+    """Эталон топологии v1 или v2 с номиналами v2."""
+    if topology in TOPOLOGIES_V2:
+        return sample(topology, rng, max_tries=max_tries)[0]
+    for _ in range(50):
+        ref = sampler.sample(topology, rng, max_tries=max_tries, pick=pick)[0]
+        if spread_ok(ref["netlist"]):
+            return ref
+    raise RuntimeError(f"{topology}: разброс номиналов")
+
+
 def sample(topology, rng, ranges=sampler.RANGES, max_tries=2000, ref_id=None):
     """Случайные номиналы, ограничения sampler.acceptable -> (эталон, отвергнутые по причинам)."""
     names = [p for p in inspect.signature(TOPOLOGIES_V2[topology][0]).parameters if p != "dc"]
     rejected = {}
     for _ in range(max_tries):
-        params = {n: sampler.pick(n[0], rng, ranges) for n in names}
+        params = {n: pick(n[0], rng, ranges) for n in names}
         try:
             ref = reference(topology, params, ref_id)
         except (ValueError, ZeroDivisionError, KeyError, TypeError):
             rejected["formula"] = rejected.get("formula", 0) + 1
+            continue
+        if not spread_ok(ref["netlist"]):
+            rejected["spread"] = rejected.get("spread", 0) + 1
             continue
         if any(ref["expected"][k] is None for k in ref["quantities"]):
             rejected["measure"] = rejected.get("measure", 0) + 1

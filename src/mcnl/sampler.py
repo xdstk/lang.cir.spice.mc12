@@ -49,7 +49,7 @@ def _param_names(topology):
     return [p for p in inspect.signature(fn).parameters if p != "dc"], inspect.signature(fn).parameters
 
 
-def draw(topology, rng, ranges=RANGES):
+def draw(topology, rng, ranges=RANGES, pick=pick):
     """Один набор параметров без проверки ограничений."""
     names, sig = _param_names(topology)
     params = {}
@@ -82,12 +82,12 @@ def acceptable(ref):
     return True, None
 
 
-def sample(topology, rng, ranges=RANGES, max_tries=2000, ref_id=None):
+def sample(topology, rng, ranges=RANGES, max_tries=2000, ref_id=None, pick=pick):
     """Эталон (formulas.reference) со случайными номиналами, прошедший ограничения.
     -> (эталон, число отвергнутых попыток по причинам)."""
     rejected = {}
     for _ in range(max_tries):
-        params = draw(topology, rng, ranges)
+        params = draw(topology, rng, ranges, pick)
         try:
             ref = formulas.reference(topology, params, ref_id)
         except (ValueError, ZeroDivisionError) as err:
