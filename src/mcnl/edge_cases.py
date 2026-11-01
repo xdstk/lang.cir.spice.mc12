@@ -18,7 +18,7 @@ except ImportError:  # запуск как скрипта
     import score
 
 STRANGE = ("dangling", "source_shunt", "unreal_value", "open_output")
-UNREAL = {"L": [5e-9, 10.0, 100.0], "R": [0.1, 1e9], "C": [0.5e-12, 10e-3]}
+UNREAL = {"L": [5e-9, 10.0], "R": [0.1, 1e9], "C": [0.5e-12, 10e-3]}
 
 
 def _chain_lines(rng):

@@ -118,7 +118,10 @@ def make_prompt(ref, kind, split, rng):
             return "A", "chain", compose.describe_chain(ref["params"]["sections"], r2)
         return "A1", "addon", compose.describe_addon(ref, r2)
     fam = rng.choices(list(families), list(families.values()))[0]
-    return "A", fam, verified_a(ref["netlist"], fam, r2)
+    try:
+        return "A", fam, verified_a(ref["netlist"], fam, r2)
+    except (AssertionError, ValueError):  # разбор v1 не рассчитан на элемент на источнике и т.п. (около 3% схем)
+        return "A", "freeform", verified_a(ref["netlist"], "freeform", r2)
 
 
 def plan(n, rng):
