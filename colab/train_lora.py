@@ -5,6 +5,7 @@
 """
 import argparse
 import json
+import math
 import sys
 import time
 from pathlib import Path
@@ -63,7 +64,7 @@ def main():
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
     model = AutoModelForCausalLM.from_pretrained(
-        a.model, device_map="auto", torch_dtype=dtype,
+        a.model, device_map="auto",
         quantization_config=BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True,
                                                bnb_4bit_compute_dtype=dtype))
     model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
@@ -75,10 +76,11 @@ def main():
     dev, cut_dev = dataset(Path(a.data) / "dev.jsonl", tok, a.max_len)
     print(f"примеров: train {len(train)}, dev {len(dev)}; длиннее {a.max_len} токенов: {cut_train}, {cut_dev}", flush=True)
 
+    steps = math.ceil(len(train) / a.batch / a.accum) * a.epochs
     args = TrainingArguments(
         output_dir=str(out / "checkpoints"), num_train_epochs=a.epochs, per_device_train_batch_size=a.batch,
         per_device_eval_batch_size=a.batch, gradient_accumulation_steps=a.accum, learning_rate=a.lr, lr_scheduler_type="cosine",
-        warmup_ratio=0.05, bf16=bf16, fp16=not bf16, logging_steps=20, eval_strategy="epoch", save_strategy="steps", save_steps=100,
+        warmup_steps=max(1, int(0.05 * steps)), bf16=bf16, fp16=not bf16, logging_steps=max(1, int(steps) // 40), eval_strategy="epoch", save_strategy="steps", save_steps=100,
         save_total_limit=2, report_to=[], seed=a.seed, remove_unused_columns=False,
         gradient_checkpointing=True, gradient_checkpointing_kwargs={"use_reentrant": False})
     trainer = Trainer(model=model, args=args, train_dataset=train, eval_dataset=dev, data_collator=collate(tok.pad_token_id))

@@ -40,6 +40,11 @@ class Export(unittest.TestCase):
         rows = training.read_jsonl(WORK / "n" / "train.jsonl")
         self.assertEqual([m["role"] for m in rows[0]["messages"]], ["system", "user", "assistant"])
 
+    def test_limit(self):
+        rep = training.export(V2, WORK / "l", "netlist", 1000, 200)
+        self.assertEqual(rep["train"]["records"], 200)
+        self.assertEqual(rep["dev"]["records"], 150)
+
     def test_every_answer_parses(self):
         for fmt in training.FORMATS:
             for r in training.read_jsonl(V2 / "dev.jsonl"):
