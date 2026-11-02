@@ -25,6 +25,7 @@
 ## Как устроена работа
 
 Открыть ноутбук: https://colab.research.google.com/github/xdstk/lang.cir.spice.mc12/blob/main/colab/stage2.ipynb
+Репозиторий закрытый: Colab читает код по токену только на чтение из секрета `GITHUB_TOKEN`. Открытому репозиторию токен не нужен.
 Любой запуск в Colab лежит на Drive в `mcnl/<RUN>`: адаптер, `run.json`, `loss.png`, ответы. Ноутбук правится через `colab/build_notebook.py`.
 
 ```
