@@ -27,7 +27,8 @@ def load(base, adapter=None, four_bit=True):
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
     dtype = torch.bfloat16 if native_bf16() else torch.float16
-    kw = {"device_map": "auto"}
+    # «auto» оставляет запас и на 6 ГБ отказывает заранее; модель целиком на GPU, нехватка памяти покажет себя честно
+    kw = {"device_map": {"": 0} if torch.cuda.is_available() else "auto"}
     if four_bit:
         kw["quantization_config"] = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
                                                        bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=dtype)
