@@ -6,9 +6,12 @@
 import argparse
 import json
 import math
+import os
 import sys
 import time
 from pathlib import Path
+
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")  # до импорта torch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -48,8 +51,9 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--epochs", type=float, default=3)
     ap.add_argument("--lr", type=float, default=2e-4)
-    ap.add_argument("--batch", type=int, default=4)
-    ap.add_argument("--accum", type=int, default=2)
+    # логиты батча: токены * словарь (150 тыс. у Qwen); батч 4 при 700 токенах не вошёл в 15 ГБ T4. Шаг обучения тот же: 2 * 4
+    ap.add_argument("--batch", type=int, default=2)
+    ap.add_argument("--accum", type=int, default=4)
     ap.add_argument("--max-len", type=int, default=1024)
     ap.add_argument("--lora-r", type=int, default=16)
     ap.add_argument("--seed", type=int, default=1)
@@ -67,6 +71,7 @@ def main():
         a.model, device_map="auto",
         quantization_config=BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True,
                                                bnb_4bit_compute_dtype=dtype))
+    model.config.use_cache = False  # кэш при обучении не нужен и мешает контрольным точкам градиента
     model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
     model = get_peft_model(model, LoraConfig(r=a.lora_r, lora_alpha=2 * a.lora_r, lora_dropout=0.05, bias="none",
                                              task_type="CAUSAL_LM", target_modules="all-linear"))
@@ -82,6 +87,7 @@ def main():
         per_device_eval_batch_size=a.batch, gradient_accumulation_steps=a.accum, learning_rate=a.lr, lr_scheduler_type="cosine",
         warmup_steps=max(1, int(0.05 * steps)), bf16=bf16, fp16=not bf16, logging_steps=max(1, int(steps) // 40), eval_strategy="epoch", save_strategy="steps", save_steps=100,
         save_total_limit=2, report_to=[], seed=a.seed, remove_unused_columns=False,
+        prediction_loss_only=True,  # на dev нужны только потери: логиты всей выборки в память не поместятся
         gradient_checkpointing=True, gradient_checkpointing_kwargs={"use_reentrant": False})
     trainer = Trainer(model=model, args=args, train_dataset=train, eval_dataset=dev, data_collator=collate(tok.pad_token_id))
     last = get_last_checkpoint(str(out / "checkpoints")) if (out / "checkpoints").exists() else None
