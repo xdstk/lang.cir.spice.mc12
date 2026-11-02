@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Подготовка обучения: системная инструкция, экспорт датасета в диалоги, разметка меток (docs/stage2_plan.md).
 
-Запуск:  python src/mcnl/training.py --data data/dataset/v2 --subset 2000 --format netlist --out out/training/v2_2000
+Запуск:  python src/mcnl/training.py --data data/dataset/v2 --subset 2000 [--limit 200] --format netlist --out out/training/v2_2000
 
 Только стандартная библиотека: файл работает и здесь, и в Colab. Инструкция одна для обучения и для работы
 программы: модель должна видеть в программе ровно то, на чём училась.
@@ -82,15 +82,18 @@ def read_jsonl(path):
     return [json.loads(l) for l in Path(path).read_text(encoding="utf-8").splitlines() if l.strip()]
 
 
-def export(data, out, fmt="netlist", subset=None):
-    """train и dev в диалогах; subset - вложенное подмножество train (1000, 2000, 3000) -> отчёт о длинах."""
+def export(data, out, fmt="netlist", subset=None, limit=None):
+    """train и dev в диалогах; subset - вложенное подмножество train (1000, 2000, 3000), limit - первые записи
+    подмножества, для пробы -> отчёт о длинах."""
     data, out = Path(data), Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    report = {"format": fmt, "subset": subset}
+    report = {"format": fmt, "subset": subset, "limit": limit}
     for split in ("train", "dev"):
         recs = read_jsonl(data / f"{split}.jsonl")
         if split == "train" and subset:
             recs = [r for r in recs if r.get("subset", 0) <= subset]
+        if split == "train" and limit:
+            recs = recs[:limit]
         rows = [{"id": r["id"], "messages": messages(r["prompt"], answer_for(r, fmt), fmt)} for r in recs]
         with open(out / f"{split}.jsonl", "w", encoding="utf-8", newline="\n") as fh:
             for row in rows:
@@ -106,9 +109,9 @@ def main(argv):
     def opt(key, default=None):
         return argv[argv.index(key) + 1] if key in argv else default
     sys.stdout.reconfigure(encoding="utf-8")
-    subset = opt("--subset")
+    subset, limit = opt("--subset"), opt("--limit")
     print(json.dumps(export(opt("--data", "data/dataset/v2"), opt("--out", "out/training/v2"), opt("--format", "netlist"),
-                            int(subset) if subset else None), ensure_ascii=False, indent=1))
+                            int(subset) if subset else None, int(limit) if limit else None), ensure_ascii=False, indent=1))
 
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@ def load(base, adapter=None, four_bit=True):
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
     dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
-    kw = {"device_map": "auto", "torch_dtype": dtype}
+    kw = {"device_map": "auto"}
     if four_bit:
         kw["quantization_config"] = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
                                                        bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=dtype)

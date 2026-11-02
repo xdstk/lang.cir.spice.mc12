@@ -26,8 +26,9 @@ def main():
     ap.add_argument("--format", default="netlist", choices=training.FORMATS)
     ap.add_argument("--batch", type=int, default=8)
     ap.add_argument("--name", help="имя модели в таблицах")
+    ap.add_argument("--limit", type=int, help="только первые записи")
     a = ap.parse_args()
-    recs = training.read_jsonl(a.records)
+    recs = training.read_jsonl(a.records)[:a.limit]
     model, tok = hf_runtime.load(a.model, a.adapter)
     outputs, sec = hf_runtime.generate(model, tok, [r["prompt"] for r in recs], a.format, a.batch)
     name = a.name or (a.adapter or a.model).rstrip("/").split("/")[-1]
