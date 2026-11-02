@@ -22,7 +22,7 @@ from transformers import (AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfi
                           set_seed)
 from transformers.trainer_utils import get_last_checkpoint  # noqa: E402
 
-from mcnl import training  # noqa: E402
+from mcnl import hf_runtime, training  # noqa: E402
 
 
 def dataset(path, tok, max_len):
@@ -57,12 +57,16 @@ def main():
     ap.add_argument("--max-len", type=int, default=1024)
     ap.add_argument("--lora-r", type=int, default=16)
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--eval-records", type=int, default=40)
     a = ap.parse_args()
     set_seed(a.seed)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
 
-    bf16 = torch.cuda.is_bf16_supported()
+    if (out / "run.json").exists():
+        print("обучение уже завершено:", out / "run.json", flush=True)
+        return
+    bf16 = hf_runtime.native_bf16()
     dtype = torch.bfloat16 if bf16 else torch.float16
     tok = AutoTokenizer.from_pretrained(a.model)
     if tok.pad_token is None:
@@ -79,6 +83,7 @@ def main():
 
     train, cut_train = dataset(Path(a.data) / "train.jsonl", tok, a.max_len)
     dev, cut_dev = dataset(Path(a.data) / "dev.jsonl", tok, a.max_len)
+    dev = dev[:a.eval_records]  # потери на dev - только для наблюдения, точность считается отдельно
     print(f"примеров: train {len(train)}, dev {len(dev)}; длиннее {a.max_len} токенов: {cut_train}, {cut_dev}", flush=True)
 
     steps = math.ceil(len(train) / a.batch / a.accum) * a.epochs

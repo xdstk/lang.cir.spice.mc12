@@ -29,12 +29,22 @@ def main():
     ap.add_argument("--limit", type=int, help="только первые записи")
     a = ap.parse_args()
     recs = training.read_jsonl(a.records)[:a.limit]
+    done = {r["id"] for r in training.read_jsonl(a.out)} if Path(a.out).exists() else set()
+    recs = [r for r in recs if r["id"] not in done]  # продолжение прерванного запуска
+    if not recs:
+        print("все ответы уже есть:", a.out)
+        return
+    print(f"осталось запросов: {len(recs)}, уже есть: {len(done)}", flush=True)
     model, tok = hf_runtime.load(a.model, a.adapter)
-    outputs, sec = hf_runtime.generate(model, tok, [r["prompt"] for r in recs], a.format, a.batch)
     name = a.name or (a.adapter or a.model).rstrip("/").split("/")[-1]
-    with open(a.out, "w", encoding="utf-8", newline="\n") as fh:
-        for r, o in zip(recs, outputs):
-            fh.write(json.dumps({"id": r["id"], "model": name, "format": a.format, "output": o}, ensure_ascii=False) + "\n")
+    left = iter(recs)
+    with open(a.out, "a", encoding="utf-8", newline="\n") as fh:
+        def save(answers):
+            for o in answers:
+                fh.write(json.dumps({"id": next(left)["id"], "model": name, "format": a.format, "output": o}, ensure_ascii=False) + "\n")
+            fh.flush()
+            print(f"готово {sum(1 for _ in open(a.out, encoding='utf-8'))}", flush=True)
+        _, sec = hf_runtime.generate(model, tok, [r["prompt"] for r in recs], a.format, a.batch, on_batch=save)
     print(json.dumps({"records": len(recs), "sec_per_query": sec, "gpu_peak_gb": torch.cuda.max_memory_allocated() / 2 ** 30}, indent=1))
 
 
