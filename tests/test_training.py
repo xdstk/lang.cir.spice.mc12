@@ -1,0 +1,107 @@
+"""Подготовка обучения: экспорт, метки, оценка готовых ответов (docs/stage2_plan.md).
+
+Запуск из корня репозитория:  python -m unittest discover -s tests
+"""
+import json
+import shutil
+import sys
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from mcnl import canon, evaluate, mc12run, score, training  # noqa: E402
+
+V2 = ROOT / "data" / "dataset" / "v2"
+WORK = ROOT / "out" / "test_training"
+
+
+class FakeTokenizer:
+    """Токены - символы: хватает, чтобы проверить разметку меток."""
+    eos_token_id = 0
+    system_ok = True
+
+    def apply_chat_template(self, msgs, tokenize=False, add_generation_prompt=True):
+        if not self.system_ok and msgs[0]["role"] == "system":
+            raise ValueError("System role not supported")
+        return "".join(f"<{m['role']}>{m['content']}" for m in msgs) + "<assistant>"
+
+    def __call__(self, text, add_special_tokens=False):
+        return {"input_ids": [ord(c) for c in text]}
+
+
+class Export(unittest.TestCase):
+    def test_subset_and_answers(self):
+        shutil.rmtree(WORK, ignore_errors=True)
+        rep = training.export(V2, WORK / "n", "netlist", 2000)
+        self.assertEqual(rep["train"]["records"], 2000)
+        self.assertEqual(rep["dev"]["records"], 150)
+        rows = training.read_jsonl(WORK / "n" / "train.jsonl")
+        self.assertEqual([m["role"] for m in rows[0]["messages"]], ["system", "user", "assistant"])
+
+    def test_every_answer_parses(self):
+        for fmt in training.FORMATS:
+            for r in training.read_jsonl(V2 / "dev.jsonl"):
+                a = training.answer_for(r, fmt)
+                if r.get("refuse"):
+                    self.assertEqual(score.parse_refusal(a, fmt)[0], r["refuse"])
+                else:
+                    el, err = score.parse_output(a, fmt)
+                    self.assertEqual(err, [], r["id"])
+                    self.assertEqual(canon.to_netlist(canon.canonicalize(el)), r["netlist"], r["id"])
+
+    def test_no_circuit_shared_with_test(self):
+        train = {r["circuit_id"] for r in training.read_jsonl(V2 / "train.jsonl") if r.get("circuit_id")}
+        test = {r["circuit_id"] for r in training.read_jsonl(V2 / "test.jsonl") if r.get("circuit_id")}
+        self.assertFalse(train & test)
+
+
+class Labels(unittest.TestCase):
+    MSGS = training.messages("RC 1к", "R1 IN OUT 1k")
+
+    def test_only_answer_is_learned(self):
+        tok = FakeTokenizer()
+        e = training.encode(tok, self.MSGS, 10000)
+        n = sum(l != -100 for l in e["labels"])
+        self.assertEqual(n, len("R1 IN OUT 1k") + 1)
+        self.assertEqual(e["input_ids"][-1], tok.eos_token_id)
+        self.assertEqual(len(e["input_ids"]), len(e["labels"]))
+
+    def test_too_long_is_dropped(self):
+        self.assertIsNone(training.encode(FakeTokenizer(), self.MSGS, 10))
+
+    def test_template_without_system_role(self):
+        tok = FakeTokenizer()
+        tok.system_ok = False
+        text = training.chat_text(tok, self.MSGS)
+        self.assertIn("RC 1к", text)
+        self.assertIn(training.SYSTEM["netlist"][:30], text)
+
+
+def mc12_available():
+    try:
+        mc12run.find_exe()
+        return True
+    except FileNotFoundError:
+        return False
+
+
+@unittest.skipUnless(mc12_available(), "Micro-Cap 12 не установлен")
+class Predictions(unittest.TestCase):
+    def test_gold_answers_score_full(self):
+        recs = training.read_jsonl(V2 / "dev.jsonl")[:40]
+        preds = [{"id": r["id"], "model": "gold", "format": "ir", "output": training.answer_for(r, "ir")} for r in recs]
+        s = evaluate.evaluate_predictions(preds, recs, WORK / "gold")["gold/ir"]["all"]
+        self.assertEqual(s["S3"]["k"], s["n"])
+        self.assertEqual(s["S4c"]["k"], s["n"])
+        self.assertEqual(s.get("refusals", {"missed": 0})["missed"], 0)
+
+    def test_id_mismatch_refused(self):
+        recs = training.read_jsonl(V2 / "dev.jsonl")[:3]
+        with self.assertRaises(ValueError):
+            evaluate.evaluate_predictions([{"id": "x", "model": "m", "output": ""}], recs, WORK / "bad")
+
+
+if __name__ == "__main__":
+    unittest.main()

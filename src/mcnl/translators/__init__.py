@@ -26,6 +26,7 @@ class Translator:
 REGISTRY = {
     "baseline": "mcnl.translators.baseline:RuleBaseline",
     "echo": "mcnl.translators.echo:Echo",
+    "hf": "mcnl.translators.hf_model:HFModel",  # обученная модель: load("hf", base=..., adapter=...)
 }
 
 
