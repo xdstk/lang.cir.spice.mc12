@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Сборка colab/stage2.ipynb. Ноутбук правится здесь, а не в JSON.
+"""Сборка ноутбуков этапа 2: по одному на запуск, colab/stage2_<RUN>.ipynb (решение автора 03.11.2026).
+Ноутбуки правятся здесь, а не в JSON, и отличаются только настройками из RUNS.
 
 Запуск:  python colab/build_notebook.py
 """
@@ -15,9 +16,33 @@ def md(text):
     return {"cell_type": "markdown", "metadata": {}, "source": text.strip().splitlines(True)}
 
 
-CELLS = [
-    md("""
-# Этап 2: дообучение модели
+RUNS = {
+    "smoke1": {"model": "Qwen/Qwen2.5-7B-Instruct", "subset": 1000, "limit": 200, "epochs": 5,
+               "about": "Фаза 2, проба конвейера: 200 записей, 5 эпох. Обучение уже сделано (`run.json` на Drive), ячейки 4 и 6 "
+                        "можно пропустить; ячейка 8 дописывает ответы dev до полных 150 - для итоговой таблицы."},
+    "q35_4b": {"model": "Qwen/Qwen3.5-4B", "subset": 2000, "limit": 0, "epochs": 2,
+               "about": "Фаза 3, отбор моделей: Qwen3.5-4B. Условия у всех кандидатов одни: v2, 2000 записей, 2 эпохи, seed 1."},
+}
+
+
+def settings(run, r):
+    return "\n".join([
+        f"MODEL = '{r['model']}'",
+        f"RUN = '{run}'".ljust(23) + "# имя запуска: папка на Drive",
+        f"SUBSET = {r['subset']}".ljust(23) + "# вложенное подмножество train v2: 1000, 2000 или 3000",
+        f"LIMIT = {r['limit']}".ljust(23) + "# сколько записей взять из подмножества; 0 - все",
+        "FORMAT = 'netlist'".ljust(23) + "# netlist или ir",
+        f"EPOCHS = {r['epochs']}",
+        "SEED = 1",
+        "OUT = f'/content/drive/MyDrive/mcnl/{RUN}'",
+        "!mkdir -p {OUT}",
+        "!python src/mcnl/training.py --data data/dataset/v2 --subset {SUBSET} --limit {LIMIT} --format {FORMAT} --out out/training/{RUN}",
+    ])
+
+
+def cells(run, r):
+    return [
+    md("# Этап 2: " + r["model"] + " (`" + run + "`)\n\n" + r["about"] + """
 
 Цель: научить модель переводить описание схемы на русском в нетлист для Micro-Cap. Метод - QLoRA: веса модели заморожены в 4-битном виде, обучается только малый добавочный слой (LoRA), поэтому хватает бесплатного GPU.
 
@@ -55,21 +80,9 @@ if done.returncode:
 """),
     md("""
 ## 3. Настройки запуска
-Фаза 3 - отбор моделей: у всех кандидатов одни условия (v2, 2000 записей, 2 эпохи, seed 1), меняются только `MODEL` и `RUN`.
-Проба фазы 2 запускалась так: `Qwen/Qwen2.5-7B-Instruct`, `RUN='smoke1'`, `SUBSET=1000`, `LIMIT=200`, `EPOCHS=5`.
+Настройки этого запуска; ноутбуки других моделей отличаются только ими.
 """),
-    code("""
-MODEL = 'Qwen/Qwen3.5-4B'
-RUN = 'q35_4b'         # имя запуска: папка на Drive
-SUBSET = 2000          # вложенное подмножество train v2: 1000, 2000 или 3000
-LIMIT = 0              # сколько записей взять из подмножества; 0 - все
-FORMAT = 'netlist'     # netlist или ir
-EPOCHS = 2
-SEED = 1
-OUT = f'/content/drive/MyDrive/mcnl/{RUN}'
-!mkdir -p {OUT}
-!python src/mcnl/training.py --data data/dataset/v2 --subset {SUBSET} --limit {LIMIT} --format {FORMAT} --out out/training/{RUN}
-"""),
+    code(settings(run, r)),
     md("""
 ## 4. Проба модели
 Шаблон чата: в конце запроса должно стоять `<think>
@@ -164,7 +177,8 @@ show('Запросы C01', 'data/human_test/v1/paraphrase.jsonl', f'{OUT}/paraph
 """),
 ]
 
-nb = {"cells": CELLS, "metadata": {"accelerator": "GPU", "colab": {"provenance": []},
-                                   "kernelspec": {"display_name": "Python 3", "name": "python3"}, "language_info": {"name": "python"}},
-      "nbformat": 4, "nbformat_minor": 5}
-Path(__file__).with_name("stage2.ipynb").write_text(json.dumps(nb, ensure_ascii=False, indent=1) + "\n", encoding="utf-8", newline="\n")
+for run, r in RUNS.items():
+    nb = {"cells": cells(run, r), "metadata": {"accelerator": "GPU", "colab": {"provenance": []},
+                                               "kernelspec": {"display_name": "Python 3", "name": "python3"}, "language_info": {"name": "python"}},
+          "nbformat": 4, "nbformat_minor": 5}
+    Path(__file__).with_name(f"stage2_{run}.ipynb").write_text(json.dumps(nb, ensure_ascii=False, indent=1) + "\n", encoding="utf-8", newline="\n")
