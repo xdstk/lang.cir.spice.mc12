@@ -67,6 +67,22 @@ class Build(unittest.TestCase):
         self.assertEqual(op[0]["nodes"][3:], ["0", "0"])
         self.assertEqual(len(op[4]), 5)
 
+    def test_note_right_of_circuit_and_on_page(self):
+        # MC12 привязывает многострочный текст снизу: блок не должен уходить выше листа и залезать на схему
+        net = PILOT[12]["netlist"]
+        placed = spice2cir.layout(canon.parse_netlist(net)[0])
+        note = ["t: netlist (spice2cir)"] + net.strip().splitlines() + ["AC analysis: Alt+2"]
+        x, y = spice2cir.note_place(placed, note)
+        self.assertGreater(x, spice2cir.extent(placed)[0])
+        self.assertGreaterEqual(y - spice2cir.TEXT_LINE * len(note), 0)
+
+    def test_scale_is_an_mc12_step(self):
+        # другие значения MC12 молча заменяет на 1
+        for r in TEST[:50]:
+            text = spice2cir.build(r["netlist"], r["f_char"])
+            scale = float(text.split("Scale 0=")[1].split("\r\n")[0])
+            self.assertIn(scale, spice2cir.SCALES)
+
     def test_rejects_current_source(self):
         with self.assertRaises(ValueError):
             spice2cir.build("I1 IN 0 DC 0\nR1 IN 0 1k\n")
