@@ -107,14 +107,15 @@ def _search(grid, net, start, goals):
     return None
 
 
-def route_net(grid, net, terminals):
-    """Соединяет выводы цепи деревом проводов -> [(a, b)] или None (тогда сетка возвращается как была)."""
-    if len(terminals) < 2:
+def route_net(grid, net, terminals, start=()):
+    """Соединяет выводы цепи деревом проводов -> [(a, b)] или None (тогда сетка возвращается как была).
+    start - точки уже нарисованных проводов цепи (отвод к метке): дерево растёт от них, а не идёт по ним."""
+    tree = set(start) or {terminals[0]}
+    rest = [t for t in terminals if t not in tree]
+    if not rest:
         return []
     saved = dict(grid.wire)
-    tree = {terminals[0]}
     segs = []
-    rest = list(terminals[1:])
     while rest:
         rest.sort(key=lambda t: min(abs(t[0] - x) + abs(t[1] - y) for x, y in tree))
         t = rest.pop(0)
