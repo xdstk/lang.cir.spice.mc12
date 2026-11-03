@@ -22,10 +22,17 @@ class FakeTokenizer:
     eos_token_id = 0
     system_ok = True
 
+    drop_system = False
+    end = None
+
     def apply_chat_template(self, msgs, tokenize=False, add_generation_prompt=True, **kw):
         self.kw = kw
         if not self.system_ok and msgs[0]["role"] == "system":
             raise ValueError("System role not supported")
+        if self.drop_system:
+            msgs = [m for m in msgs if m["role"] != "system"]
+        if self.end is not None:
+            return "".join(f"<{m['role']}>{m['content']}" + (self.end if m["role"] == "assistant" else "") for m in msgs)                 + ("<assistant>" if add_generation_prompt else "")
         return "".join(f"<{m['role']}>{m['content']}" for m in msgs) + "<assistant>"
 
     def __call__(self, text, add_special_tokens=False):
@@ -88,6 +95,19 @@ class Labels(unittest.TestCase):
         tok = FakeTokenizer()
         training.chat_text(tok, self.MSGS)
         self.assertIs(tok.kw.get("enable_thinking"), False)
+
+    def test_system_silently_dropped(self):
+        tok = FakeTokenizer()
+        tok.drop_system = True  # как шаблон YandexGPT 5: system не попадает в текст, ошибки нет
+        self.assertIn(training.SYSTEM["netlist"][:30], training.chat_text(tok, self.MSGS))
+
+    def test_end_of_turn_from_template(self):
+        tok = FakeTokenizer()
+        tok.end = "|"  # шаблон закрывает ответ своим знаком, как <|im_end|> или <turn|>
+        self.assertEqual(training.end_of_turn(tok), [ord("|")])
+        e = training.encode(tok, self.MSGS, 10000)
+        self.assertEqual(e["input_ids"][-1], ord("|"))
+        self.assertEqual(training.end_of_turn(FakeTokenizer()), [FakeTokenizer.eos_token_id])
 
 
 def mc12_available():

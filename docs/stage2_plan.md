@@ -29,6 +29,9 @@
 Ноутбук на каждый запуск (решение автора 03.11.2026), отличаются только настройками:
 - проба фазы 2, Qwen2.5 7B: https://colab.research.google.com/github/xdstk/lang.cir.spice.mc12/blob/main/colab/stage2_smoke1.ipynb
 - Qwen3.5-4B: https://colab.research.google.com/github/xdstk/lang.cir.spice.mc12/blob/main/colab/stage2_q35_4b.ipynb
+- Qwen3.5-9B: https://colab.research.google.com/github/xdstk/lang.cir.spice.mc12/blob/main/colab/stage2_q35_9b.ipynb
+- Gemma 4 E4B: https://colab.research.google.com/github/xdstk/lang.cir.spice.mc12/blob/main/colab/stage2_gemma4_e4b.ipynb
+- YandexGPT 5 Lite 8B: https://colab.research.google.com/github/xdstk/lang.cir.spice.mc12/blob/main/colab/stage2_yagpt5_lite.ipynb
 Репозиторий публичный (решение автора 02.11.2026): с токеном Colab код не скачал, причину не выясняли.
 Любой запуск в Colab лежит на Drive в `mcnl/<RUN>`: адаптер, `run.json`, `loss.png`, ответы. Ноутбуки собирает `colab/build_notebook.py` (словарь `RUNS`), в JSON их не правят.
 
@@ -95,6 +98,12 @@ Qwen2.5 7B, 200 записей, 5 эпох, 125 шагов, T4. Сессия Col
 Qwen3.5-4B проверена локально без весов (transformers 5.22.1, как в Colab): `AutoModelForCausalLM` строит только текстовую часть (`Qwen3_5ForCausalLM`), веса зрения и MTP пропускаются. Рассуждение включено по умолчанию: шаблон без флага заканчивает запрос `<think>`, поэтому `chat_text` передаёт `enable_thinking=False`. У модели нет `generation_config.json`, и генерация остановилась бы только на `<|endoftext|>`: `generate` теперь останавливается и на `<|im_end|>`. Примеры v2 (2000) - медиана 405 токенов, максимум 797. Не проверено: скорость гибридного внимания (Gated DeltaNet) на T4 без ядер flash-linear-attention - покажет ячейка 4 ноутбука (10 шагов и оценка времени).
 
 Перед обучением каждой модели - та же проба: шаблон чата, метки, 10 шагов.
+
+Остальные кандидаты проверены так же, локально без весов (03.11.2026):
+- Qwen3.5-9B (`Qwen/Qwen3.5-9B`): устроена как 4B, 8,95 млрд параметров, шаблон и токены те же. Обучение ожидается примерно вдвое дольше - вероятно, в две сессии.
+- Gemma 4 E4B (`google/gemma-4-E4B-it`, без запроса доступа): `AutoModelForCausalLM` грузит модель целиком, с башнями зрения и звука; текстовой загрузки для этого чекпойнта в transformers нет. LoRA ставится только на языковую часть (`lora_targets`, 258 слоёв, зрение и звук не задеты). 7,94 млрд параметров, из них 3,51 млрд - встраивания по слоям, они не квантуются: около 7 ГБ на T4 только на них, память проверит проба. Шаблон закрывает ответ знаком `<turn|>`, а не `<eos>`: теперь модель учит знак своего шаблона (`end_of_turn`).
+- YandexGPT 5 Lite 8B (`yandex/YandexGPT-5-Lite-8B-instruct`, без запроса доступа): обычная Llama-архитектура. Шаблон молча выбрасывал инструкцию (роль system) - теперь она идёт в начало запроса пользователя. Токенизатору нужен `sentencepiece`. Примеры короче: медиана 368 токенов против 405 у Qwen3.5.
+- Для Qwen2.5 и Qwen3.5 разметка после этих правок не изменилась: проверено токен в токен на 300 примерах.
 
 Проба Qwen3.5-4B в Colab (03.11.2026, T4): 16,5 с на шаг вместе с оценкой на dev, пик 9,4 ГБ, полное обучение (500 шагов) - около 2,3 ч. Обучается 32,5 млн параметров (0,77%). Ядра гибридного внимания (`causal_conv1d`, `flash-linear-attention`) не установлены, работает запасной путь на PyTorch. Не ставим: 2,3 ч укладываются в сессию; на ноутбуке автора (Windows) Triton нет, и там будет тот же запасной путь; сборка `causal_conv1d` под T4 не проверена. Время обучения в таблице - с этой пометкой.
 

@@ -56,24 +56,43 @@ def answer_for(rec, fmt="netlist"):
     return rec["netlist"].strip()
 
 
-def chat_text(tokenizer, msgs):
-    """Текст запроса к модели. У шаблонов без роли system (Gemma) инструкция идёт в начало запроса.
-    Рассуждение (<think>, Qwen3.5) выключено: модель сразу пишет ответ; шаблоны без этого флага его не замечают."""
-    msgs = [m for m in msgs if m["role"] != "assistant"]
-    kw = {"tokenize": False, "add_generation_prompt": True, "enable_thinking": False}
+def render(tokenizer, msgs, generation):
+    """Шаблон чата модели. Рассуждение (<think>, Qwen3.5) выключено: модель сразу пишет ответ; шаблоны без этого
+    флага его не замечают. Если шаблон запрещает роль system (Gemma 3) или молча её теряет (YandexGPT 5),
+    инструкция идёт в начало запроса пользователя."""
+    kw = {"tokenize": False, "add_generation_prompt": generation, "enable_thinking": False}
+    system = msgs[0]["content"] if msgs[0]["role"] == "system" else None
     try:
-        return tokenizer.apply_chat_template(msgs, **kw)
-    except Exception as err:  # шаблон модели запрещает system
-        if msgs[0]["role"] != "system" or "system" not in str(err).lower():
+        text = tokenizer.apply_chat_template(msgs, **kw)
+        if system is None or system.strip() in text:
+            return text
+    except Exception as err:
+        if system is None or "system" not in str(err).lower():
             raise
-        merged = [{"role": "user", "content": msgs[0]["content"] + "\n\n" + msgs[1]["content"]}]
-        return tokenizer.apply_chat_template(merged, **kw)
+    merged = [{"role": "user", "content": system + "\n\n" + msgs[1]["content"]}] + msgs[2:]
+    return tokenizer.apply_chat_template(merged, **kw)
 
 
-def encode(tokenizer, msgs, max_len):
-    """Токены и метки одного примера: учим только ответ, запрос в потерю не входит. None - пример длиннее max_len."""
+def chat_text(tokenizer, msgs):
+    """Текст запроса к модели: всё до ответа ассистента."""
+    return render(tokenizer, [m for m in msgs if m["role"] != "assistant"], True)
+
+
+def end_of_turn(tokenizer):
+    """Токены, которыми шаблон закрывает ответ ассистента: <|im_end|> у Qwen, <turn|> у Gemma 4. Если шаблон ответ
+    не показывает (YandexGPT 5) - eos токенизатора."""
+    mark = "ANSWER_MARK_7F3"
+    full = render(tokenizer, messages("x", mark), False)
+    tail = full[full.find(mark) + len(mark):].strip() if mark in full else ""
+    ids = tokenizer(tail, add_special_tokens=False)["input_ids"] if tail else []
+    return ids if 0 < len(ids) <= 3 else [tokenizer.eos_token_id]
+
+
+def encode(tokenizer, msgs, max_len, end=None):
+    """Токены и метки одного примера: учим только ответ и конец реплики, запрос в потерю не входит.
+    None - пример длиннее max_len. end - готовый end_of_turn(tokenizer), чтобы не считать его на каждый пример."""
     prefix = tokenizer(chat_text(tokenizer, msgs), add_special_tokens=False)["input_ids"]
-    answer = tokenizer(msgs[-1]["content"], add_special_tokens=False)["input_ids"] + [tokenizer.eos_token_id]
+    answer = tokenizer(msgs[-1]["content"], add_special_tokens=False)["input_ids"] + (end or end_of_turn(tokenizer))
     ids = prefix + answer
     if len(ids) > max_len:
         return None

@@ -22,6 +22,17 @@ RUNS = {
                         "можно пропустить; ячейка 8 дописывает ответы dev до полных 150 - для итоговой таблицы."},
     "q35_4b": {"model": "Qwen/Qwen3.5-4B", "subset": 2000, "limit": 0, "epochs": 2,
                "about": "Фаза 3, отбор моделей: Qwen3.5-4B. Условия у всех кандидатов одни: v2, 2000 записей, 2 эпохи, seed 1."},
+    "q35_9b": {"model": "Qwen/Qwen3.5-9B", "subset": 2000, "limit": 0, "epochs": 2,
+               "about": "Фаза 3, отбор моделей: Qwen3.5-9B, старшая модель того же семейства. Условия те же, что у 4B. "
+                        "Обучение примерно вдвое дольше, чем у 4B (точнее покажет ячейка 4): вероятно, в две сессии - "
+                        "ячейка 6 продолжает с контрольной точки на Drive."},
+    "gemma4_e4b": {"model": "google/gemma-4-E4B-it", "subset": 2000, "limit": 0, "epochs": 2,
+                   "about": "Фаза 3, отбор моделей: Gemma 4 E4B (Apache 2.0), другое семейство. Модель грузится целиком, "
+                            "с башнями зрения и звука; LoRA - только на языковую часть. Из 7,9 млрд параметров 3,5 млрд - "
+                            "встраивания по слоям, они не квантуются: память на T4 покажет ячейка 4."},
+    "yagpt5_lite": {"model": "yandex/YandexGPT-5-Lite-8B-instruct", "subset": 2000, "limit": 0, "epochs": 2,
+                    "about": "Фаза 3, отбор моделей: YandexGPT 5 Lite 8B, русскоязычная модель (собственная лицензия, "
+                             "проверена автором). Шаблон чата не знает роли system - инструкция идёт в начало запроса."},
 }
 
 
@@ -51,7 +62,7 @@ def cells(run, r):
     md("## 1. Среда\nСтавим библиотеки и проверяем, какой GPU выдан."),
     code("""
 %cd /content
-!pip -q install -U transformers peft accelerate bitsandbytes
+!pip -q install -U transformers peft accelerate bitsandbytes sentencepiece
 !nvidia-smi --query-gpu=name,memory.total --format=csv
 """),
     md("""
@@ -85,9 +96,7 @@ if done.returncode:
     code(settings(run, r)),
     md("""
 ## 4. Проба модели
-Шаблон чата: в конце запроса должно стоять `<think>
-
-</think>` (рассуждение выключено) или просто начало ответа ассистента, а учиться модель должна только нетлисту и концу реплики. Затем 10 шагов обучения во временную папку: проверка, что модель обучается на T4, и оценка времени полного запуска.
+Шаблон чата: в начале - инструкция (у YandexGPT она внутри запроса пользователя), в конце запроса - начало ответа ассистента (у Qwen3.5 с пустым блоком `<think></think>`: рассуждение выключено). Учиться модель должна только нетлисту и знаку конца реплики (`<|im_end|>`, `<turn|>` или `</s>`). Затем 10 шагов обучения во временную папку: проверка, что модель обучается на T4, и оценка времени полного запуска.
 """),
     code("""
 import sys
@@ -96,10 +105,11 @@ from transformers import AutoTokenizer
 from mcnl import training
 tok = AutoTokenizer.from_pretrained(MODEL)
 recs = training.read_jsonl(f'out/training/{RUN}/train.jsonl')
-e = training.encode(tok, recs[0]['messages'], 10 ** 6)
+end = training.end_of_turn(tok)
+e = training.encode(tok, recs[0]['messages'], 10 ** 6, end)
 print(tok.decode(e['input_ids'])[-300:])
 print('УЧИТСЯ:', repr(tok.decode([t for t, l in zip(e['input_ids'], e['labels']) if l != -100])))
-lens = sorted(len(training.encode(tok, r['messages'], 10 ** 6)['input_ids']) for r in recs)
+lens = sorted(len(training.encode(tok, r['messages'], 10 ** 6, end)['input_ids']) for r in recs)
 print(f'токенов в примере: медиана {lens[len(lens) // 2]}, максимум {lens[-1]}')
 !rm -rf /content/probe
 !python colab/train_lora.py --model {MODEL} --data out/training/{RUN} --out /content/probe --epochs {EPOCHS} --seed {SEED} --max-steps 10

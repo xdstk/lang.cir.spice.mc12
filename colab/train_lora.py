@@ -26,9 +26,18 @@ from mcnl import hf_runtime, training  # noqa: E402
 
 
 def dataset(path, tok, max_len):
-    rows = [training.encode(tok, r["messages"], max_len) for r in training.read_jsonl(path)]
+    end = training.end_of_turn(tok)
+    rows = [training.encode(tok, r["messages"], max_len, end) for r in training.read_jsonl(path)]
     kept = [r for r in rows if r]
     return kept, len(rows) - len(kept)
+
+
+def lora_targets(model):
+    """У мультимодальных моделей, что грузятся целиком (Gemma 4), LoRA только на языковую часть: башни зрения и звука
+    не трогаем. Текстовые модели (и Qwen3.5, у которой грузится только текст) - все линейные слои."""
+    if any(".language_model." in name for name, _ in model.named_modules()):
+        return r".*\.language_model\..*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)"
+    return "all-linear"
 
 
 def collate(pad_id):
@@ -79,7 +88,7 @@ def main():
     model.config.use_cache = False  # кэш при обучении не нужен и мешает контрольным точкам градиента
     model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
     model = get_peft_model(model, LoraConfig(r=a.lora_r, lora_alpha=2 * a.lora_r, lora_dropout=0.05, bias="none",
-                                             task_type="CAUSAL_LM", target_modules="all-linear"))
+                                             task_type="CAUSAL_LM", target_modules=lora_targets(model)))
     model.print_trainable_parameters()
 
     train, cut_train = dataset(Path(a.data) / "train.jsonl", tok, a.max_len)
