@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from mcnl import canon, cir2spice, iso, mc12run, spice2cir  # noqa: E402
+from mcnl import bench, canon, cir2spice, iso, mc12run, measure, spice2cir  # noqa: E402
 
 PILOT = [json.loads(l) for l in (ROOT / "data" / "pilot" / "refs.jsonl").read_text(encoding="utf-8").splitlines()]
 TEST = [json.loads(l) for l in (ROOT / "data" / "dataset" / "v1" / "test.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -154,6 +154,29 @@ class Build(unittest.TestCase):
                 self.assertEqual(strict_problems(d), [])
         self.assertEqual(unrouted, 0)
 
+    def test_signal_path_layout(self):
+        # все схемы класса раскладываются по пути сигнала, сетка - только запасной вариант
+        grid = [r["id"] for r in PILOT + TEST
+                if not isinstance(spice2cir.layout(canon.parse_netlist(r["netlist"])[0]), spice2cir.Layout)]
+        self.assertEqual(grid, [])
+        lay = spice2cir.layout(canon.parse_netlist(
+            "V1 IN 0 DC 0\nR1 IN N1 1k\nR2 N1 OUT 10k\nC1 OUT 0 1n\nX1 0 N1 OUT OPAMP_IDEAL\n")[0])
+        by = {p.e["name"]: p for p in lay}
+        self.assertEqual(by["X1"].rot, 4)  # сигнал на минус: ОУ отражён, минус сверху
+        self.assertEqual(by["R1"].pins[0][1], by["X1"].pins[2][1])  # R1 и выход ОУ на одной линии
+        self.assertLess(by["R2"].y, by["X1"].pins[1][1])  # обратная связь над ОУ
+        self.assertEqual((by["C1"].kind, by["C1"].pins[0][0]), ("down", lay.labels["OUT"][2][0][0][0]))
+        self.assertLess(by["V1"].x, by["R1"].x)
+
+    def test_grid_fallback(self):
+        # два источника - вне правил раскладки по пути сигнала: остаётся сетка, чертёж по-прежнему верный
+        net = "V1 IN 0 DC 0\nV2 N1 0 DC 1\nR1 IN OUT 1k\nR2 N1 OUT 2k\nC1 OUT 0 1n\n"
+        placed = spice2cir.layout(canon.parse_netlist(net)[0])
+        self.assertNotIsInstance(placed, spice2cir.Layout)
+        d = spice2cir.draw(placed)
+        self.assertEqual((strict_problems(d), spice2cir.overlaps(d)), ([], []))
+        self.assertTrue(roundtrip_ok(net))
+
     def test_grounds_point_away(self):
         placed = spice2cir.layout(canon.parse_netlist("V1 IN 0 DC 0\nR1 IN N1 1k\nC1 N1 0 1n\nX1 0 N1 OUT OPAMP_IDEAL\n")[0])
         c1 = [p for p in placed if p.e["name"] == "C1"][0]
@@ -197,6 +220,31 @@ class InMC12(unittest.TestCase):
             with self.subTest(cir=Path(res["ckt"]).name):
                 self.assertTrue(res["ok"], res)
                 self.assertEqual(res["messages"], [])
+
+    def test_curve_matches_netlist(self):
+        # провода и отражённый ОУ (Rot 4) MC12 читает так же, как cir2spice: АЧХ и ФЧХ чертежа = эталонный .ckt
+        work = ROOT / "out" / "test_spice2cir_curve"
+        shutil.rmtree(work, ignore_errors=True)
+        work.mkdir(parents=True)
+        ids = ("p07_inverting", "p08_noninverting", "p12_sk_lp_gain", "p15_mfb_bp", "p16_follower")
+        cases = [r for r in PILOT if r["id"] in ids] + [r for r in TEST if r["level"] == "L3"][:2]
+        pairs = []
+        for i, r in enumerate(cases):
+            text = spice2cir.build(r["netlist"], r["f_char"])
+            wave = text[text.index("[WaveForm]"):]  # числовой вывод (OUTPUT) и фаза - только для сравнения
+            phase = wave.replace("Plt=1", "Plt=2").replace("AliasID=1", "AliasID=2").replace("dB(V(OUT))", "PH(V(OUT))")
+            text = text.replace(wave, (wave + "\r\n" + phase).replace("Options=LINEARY", "Options=OUTPUT,LINEARY"))
+            spice2cir.write(work / f"w{i}.cir", text)
+            bench.write(work / f"r{i}.ckt", bench.build(canon.parse_netlist(r["netlist"])[0], r["f_char"], f"r{i}"))
+            pairs.append((r["id"], work / f"w{i}.cir", work / f"r{i}.ckt"))
+        res = {Path(x["ckt"]).name: x for x in
+               mc12run.run([p for _, *ps in pairs for p in ps], analyses=["A"], timeout=300)}
+        for rid, w, ref in pairs:
+            with self.subTest(ref=rid):
+                self.assertTrue(res[w.name]["ok"] and res[ref.name]["ok"], (res[w.name], res[ref.name]))
+                ok, diff = measure.curve_match(measure.read_curve(res[ref.name]["output"]),
+                                               measure.read_curve(res[w.name]["output"]))
+                self.assertTrue(ok, diff)
 
 
 if __name__ == "__main__":

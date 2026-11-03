@@ -3,9 +3,12 @@
 
 Запуск:  python spice2cir.py нетлист.ckt схема.cir [--fchar 1591]
 
-Раскладка простая (CLAUDE.md): источник слева, последовательные двухполюсники строками, элементы на землю -
-вертикально отдельными строками, ОУ ниже. Узлы соединяются проводами (трассировка по сетке - route.py); цепь,
-которую развести не удалось, соединяется метками узлов (Grid Text на выводах, RM12 с. 45-46, 67). Узлы IN и OUT
+Раскладка по пути сигнала (_flow_layout): главная линия IN -> OUT слева направо, источник слева, элементы на землю
+и боковые цепочки висят под своим узлом, ОУ стоит в разрыве линии (вход сигнала сверху, при сигнале на минус ОУ
+отражён), обратные связи - перемычки над линией, делитель обратной связи - под ОУ. Схема вне её правил (несколько
+источников, ОУ вне главной линии) раскладывается прежней сеткой (_grid_layout). Узлы соединяются проводами
+(трассировка по сетке - route.py); цепь, которую развести не удалось, соединяется метками узлов (Grid Text на
+выводах, RM12 с. 45-46, 67). Узлы IN и OUT
 всегда подписаны: по их именам строятся анализ и график. На узел 0 ставится символ земли, направленный от
 элемента наружу; элементы, провода, метки и земли не перекрываются. ОУ - элемент Opamp с моделью OPAMP_IDEAL
 уровня 1: A = 1e6, R = ROUTAC + ROUTDC = 1 Ом (RM12 с. 728, 732), выводы питания не подключены
@@ -46,7 +49,15 @@ GROUND_LEN = 3
 # подписи PART и значения, px от точки привязки (верхний левый угол текста): у горизонтального - под элементом,
 # у вертикального - справа (как у резисторов в примерах DATA), у ОУ - справа снизу, мимо земель питания
 ATTRS = {"h": ((18, 6), (18, 20)), "down": ((8, 11), (8, 25)), "up": ((8, -37), (8, -23)),
-         "source": ((14, -37), (14, -23)), "opamp": ((76, 40), (76, 54))}
+         "source": ((14, -37), (14, -23)), "opamp": ((76, 40), (76, 54)),
+         # раскладка по пути сигнала: у перемычки над линией подписи сверху, у ОУ - справа от земли питания над ним
+         "hb": ((18, -34), (18, -20)), "opamp_t": ((44, -32), (44, -20)), "opamp_f": ((44, -80), (44, -68))}
+# Раскладка по пути сигнала, шаги сетки: главная линия IN -> OUT на высоте 0; элементы на землю и боковые цепочки
+# висят под своим узлом (верхний вывод на HANG_TOP ниже линии, следующее звено цепочки - на HANG_DY ниже);
+# ОУ стоит в разрыве линии выходом на ней; делитель обратной связи - под ОУ на FB_Y; остальное - перемычки над линией.
+FLOW_DX, HANG_TOP, HANG_DY, FB_Y = 10, 5, 8, 11
+PATH_STEPS = 20000  # предел перебора путей IN -> OUT
+OPAMP_GAP = 16  # от точки привязки ОУ до следующего узла линии: подпись ОУ не должна лечь на провод к узлу
 Placed = namedtuple("Placed", "e x y rot pins kind ends")  # ends: (точка метки, направление наружу) на вывод
 # Чертёж: раскладка и всё, что к ней дорисовано. wires: (a, b, цепь); labels: (текст, точка, номер элемента);
 # grounds: (точка, направление, номер элемента); routed: цепи, соединённые проводами.
@@ -106,13 +117,15 @@ def _element_boxes(placed):
     out = []
     for i, p in enumerate(placed):
         e, x, y = p.e, p.x, p.y
-        if p.kind == "h":
+        if p.kind in ("h", "hb"):
             out.append(("body", i, (x + 0.5, y - 0.75, x + 5.5, y + 0.75)))
         elif p.kind in ("down", "up"):
             y0, y1 = sorted(py for _, py in p.pins)
             out.append(("body", i, (x - 0.75, y0 + 0.5, x + 0.75, y1 - 0.5)))
         elif p.kind == "source":
             out.append(("body", i, (x - 1.5, y - 5, x + 1.5, y - 1)))
+        elif p.rot == 4:  # ОУ, отражённый по вертикали: минус сверху
+            out.append(("body", i, (x + 1, y - 6.5, x + 8, y + 0.5)))
         else:
             out.append(("body", i, (x + 1, y - 0.5, x + 8, y + 6.5)))
         for (ox, oy), text in zip(ATTRS[p.kind], _attr_texts(e)):
@@ -171,12 +184,19 @@ def draw(placed, wires=True):
         blocked |= _points_in(r, 0.3 if kind == "body" else 0.45)
     for gpt, gd, _ in grounds:
         blocked |= _points_in(_ground_box(gpt, gd), 0.3)
-    named = {}
+    named, under = {}, {}
+    spec = getattr(placed, "labels", {})  # раскладка по пути сигнала ставит метки сама
     for net in NAMED:
         if net in nets:
-            i, pt, stub = label_at(net, nets[net])
-            named[net] = (i, pt, stub)
-            blocked |= _points_in(_text_box(pt[0], pt[1], net), 0.45) - {pt}
+            if net in spec:
+                i, pt, stub = spec[net]
+                named[net] = (i, pt, [(a, b, net) for a, b in stub])
+            else:
+                named[net] = label_at(net, nets[net])
+            pt = named[net][1]
+            box = _points_in(_text_box(pt[0], pt[1], net), 0.45)
+            under[net] = {q for q in box if q[1] == pt[1]}  # по строке привязки может идти провод своей цепи
+            blocked |= box - under[net]
     allb = [r for *_, r in eb] + [_ground_box(g, d) for g, d, _ in grounds]
     bounds = (math.floor(min(r[0] for r in allb)) - 8, math.floor(min(r[1] for r in allb)) - 6,
               math.ceil(max(r[2] for r in allb)) + 8, math.ceil(max(r[3] for r in allb)) + 8)
@@ -190,11 +210,15 @@ def draw(placed, wires=True):
     for gpt, gd, _ in grounds:
         grid.owner[gpt] = "0"
     out_wires = list(gwires)
+    start = {}
     for net, (i, pt, stub) in named.items():
         grid.owner[pt] = net
+        for q in under[net]:
+            grid.owner.setdefault(q, net)
         for a, b, _ in stub:
             for q in _segment_points(a, b):
                 grid.owner[q] = net
+                start.setdefault(net, set()).add(q)
         out_wires += stub
         labels.append((net, pt, i))
     routed = set()
@@ -202,7 +226,7 @@ def draw(placed, wires=True):
                                         + max(t[1][1] for t in nets[n]) - min(t[1][1] for t in nets[n])))
     for net in order if wires else []:
         terms = [t[1] for t in nets[net]]
-        segs = route.route_net(grid, net, terms)
+        segs = route.route_net(grid, net, terms, start.get(net, ()))
         if segs is not None:
             routed.add(net)
             out_wires += [(a, b, net) for a, b in segs]
@@ -336,8 +360,250 @@ def _two_pin(e, x, y, vertical):
     return Placed(e, x, y + 6, 3, [(x, y + 6), (x, y)], "up", [((x, y + 6), "down"), ((x, y), "up")])
 
 
+class Layout(list):
+    """[Placed] раскладки по пути сигнала и её метки: {цепь: (номер элемента, точка, [(a, b)] - отвод к метке)}."""
+    labels = {}
+
+
+def _swap_to(e, first):
+    """Выводы R, C, L равноправны (iso их не различает): чтобы не поворачивать элемент, переставляются узлы."""
+    a, b = e["nodes"]
+    return e if a == first or e["type"] not in "RCL" else dict(e, nodes=[b, a])
+
+
+def _horizontal(e, x, y, left, kind="h"):
+    e = _swap_to(e, left)
+    return Placed(e, x, y, 0, [(x, y), (x + 6, y)], kind, [((x - STUB, y), "left"), ((x + 6, y), "right")])
+
+
+def _vertical(e, x, y, top):
+    """Вертикальный элемент, вывод узла top - сверху в (x, y). Источник - плюсом вверх (Rot 3, привязка снизу)."""
+    if e["type"] in "VI":
+        return Placed(e, x, y + 6, ROT_UP, [(x, y), (x, y + 6)], "source", [((x, y), "up"), ((x, y + 6), "down")])
+    e = _swap_to(e, top)
+    return Placed(e, x, y, 1, [(x, y), (x, y + 6)], "down", [((x, y), "up"), ((x, y + 6), "down")])
+
+
+def _opamp(e, x, y, flip):
+    """ОУ с выходом в (x + 9, y). flip - отражение по вертикали (Rot 4): вход сигнала (минус) сверху."""
+    e = dict(e, nodes=list(e["nodes"]) + ["0", "0"])  # питание на землю, см. _grid_layout
+    if not flip:
+        y0 = y - 3
+        pins = [(x + OPAMP_PINS[p][0], y0 + OPAMP_PINS[p][1]) for p in ("plus", "minus", "out", "vee", "vcc")]
+        ends = [((x - STUB, pins[0][1]), "left"), ((x - STUB, pins[1][1]), "left"), (pins[2], "right"),
+                (pins[3], "down"), (pins[4], "up")]
+        return Placed(e, x, y0, 0, pins, "opamp_t", ends)
+    y0 = y + 3
+    pins = [(x + OPAMP_PINS[p][0], y0 - OPAMP_PINS[p][1]) for p in ("plus", "minus", "out", "vee", "vcc")]
+    ends = [((x - STUB, pins[0][1]), "left"), ((x - STUB, pins[1][1]), "left"), (pins[2], "right"),
+            (pins[3], "up"), (pins[4], "down")]
+    return Placed(e, x, y0, 4, pins, "opamp_f", ends)
+
+
+def _hang_width(e):
+    """Ширина места под висящий элемент: корпус и подписи справа от него."""
+    body, text = (1.5, 1.75) if e["type"] in "VI" else (0.75, 1)
+    return math.ceil(body + text + TEXT_CHAR * max(map(len, _attr_texts(e))) + 1.5)
+
+
+def _flow_layout(elems, spread=0):
+    """Раскладка по пути сигнала -> Layout или None, если схема не укладывается в её правила.
+
+    Главная линия - кратчайший путь IN -> OUT; в узел, который ведёт ОУ, путь входит только через этот ОУ (иначе
+    обратная связь стала бы главной линией). Второй вход ОУ вне линии - узел обратной связи, его элементы ставятся
+    под ОУ. Узлы вне линии висят под узлом, от которого до них дошёл поиск. spread - добавка к промежуткам."""
+    srcs = [e for e in elems if e["type"] in "VI"]
+    ops = [e for e in elems if e["type"] == "OPAMP"]
+    two = [e for e in elems if e["type"] in "RCL"]
+    if len(srcs) != 1 or srcs[0]["nodes"] != ["IN", "0"]:
+        return None
+    driven = {o["nodes"][2] for o in ops}
+    if len(driven) != len(ops) or "0" in driven or "IN" in driven:
+        return None
+    adj = {}
+    for e in two:
+        a, b = e["nodes"]
+        if "0" not in (a, b) and a != b:
+            adj.setdefault(a, []).append((b, e))
+            adj.setdefault(b, []).append((a, e))
+    # перебор простых путей (схемы маленькие, шагов не больше PATH_STEPS): больше ОУ, затем короче
+    best, budget = [None], [PATH_STEPS]
+
+    def walk(n, path, edges):
+        budget[0] -= 1
+        if budget[0] < 0:
+            return
+        if n == "OUT":
+            key = (sum(e["type"] == "OPAMP" for e in edges), -len(edges))
+            if best[0] is None or key > best[0][0]:
+                best[0] = (key, list(path), list(edges))
+            return
+        steps = [(m, e) for m, e in adj.get(n, []) if m not in driven]
+        steps += [(o["nodes"][2], o) for o in ops if n in o["nodes"][:2]]
+        for m, e in steps:
+            if m not in path:
+                walk(m, path + [m], edges + [e])
+
+    walk("IN", ["IN"], [])
+    if best[0] is None:
+        return None
+    _, main, via = best[0]
+    on_main = set(main)
+    if sum(e["type"] == "OPAMP" for e in via) != len(ops):
+        return None  # ОУ вне главной линии (кольцо из нескольких ОУ и т.п.)
+    fb = {}
+    for i, e in enumerate(via):
+        if e["type"] == "OPAMP":
+            other = [n for n in e["nodes"][:2] if n != main[i]]
+            if other and other[0] != "0" and other[0] not in on_main:
+                if other[0] in fb:
+                    return None
+                fb[other[0]] = i
+    used = {id(e) for e in via}
+    items = {}  # узел -> [(элемент, узел под ним или None)]: что висит под узлом
+    for e in two:
+        a, b = e["nodes"]
+        if "0" in (a, b):
+            if a == b:
+                return None
+            items.setdefault(b if a == "0" else a, []).append((e, None))
+            used.add(id(e))
+    parent, queue = {}, list(main) + list(fb)
+    for n in queue:
+        for m, e in adj.get(n, []):
+            if id(e) in used or m in on_main or m in fb or m in parent:
+                continue
+            parent[m] = n
+            used.add(id(e))
+            items.setdefault(n, []).append((e, m))
+            queue.append(m)
+    nodes = {n for e in elems for n in e["nodes"] if n != "0"}
+    if nodes - on_main - set(fb) - set(parent):
+        return None  # часть схемы не связана с линией
+    bridges = [e for e in two if id(e) not in used]
+
+    out, nx = Layout(), {}
+
+    def hang(n, x, y):
+        """Подвешивает под узел n с верхним выводом в (x, y) -> ширина."""
+        cur = x
+        for e, child in items.get(n, []):
+            out.append(_vertical(e, cur, y, n))
+            w = _hang_width(e) + spread
+            if child is not None:
+                nx[child] = cur
+                w = max(w, hang(child, cur, y + HANG_DY))
+            cur += w
+        return cur - x
+
+    x = 0
+    gaps = []  # (номер ОУ в out, узел обратной связи, x ОУ)
+    for i, n in enumerate(main):
+        nx[n] = x
+        w = 0
+        if n == "IN":
+            out.append(_vertical(srcs[0], x, HANG_TOP, "IN"))
+            w = _hang_width(srcs[0]) + spread
+        w += hang(n, x + w, HANG_TOP)
+        if i == len(main) - 1:
+            break
+        e = via[i]
+        if e["type"] == "OPAMP":
+            f = next((m for m, j in fb.items() if j == i), None)
+            fw = 0
+            if f is not None:
+                nx[f] = x + w + 1
+                fw = hang(f, x + w + 1, FB_Y) + 1
+            xo = x + max(4, w + fw + 5) + spread
+            out.append(_opamp(e, xo, 0, flip=e["nodes"][1] == n))
+            gaps.append((len(out) - 1, f, xo))
+            x = xo + OPAMP_GAP + spread
+        else:
+            gap = max(FLOW_DX, w + 2) + spread
+            out.append(_horizontal(e, x + (gap - 6) // 2, 0, n))
+            x += gap
+    xo_end = nx["OUT"]
+    src = next(k for k, p in enumerate(out) if p.kind == "source")
+    out_el = next(k for k, p in enumerate(out) if "OUT" in p.e["nodes"])
+    out.labels = {"IN": (src, (0, 0), [((0, HANG_TOP), (0, 0))]),
+                  "OUT": (out_el, (xo_end + 3, 0), [((xo_end, 0), (xo_end + 3, 0))])}
+
+    # под ОУ: элементы между узлом обратной связи и линией, рядами вниз
+    rows = {}
+    for e in list(bridges):
+        a, b = e["nodes"]
+        f, m = (a, b) if a in fb else (b, a)
+        if f in fb and m in on_main:
+            xo = next(g[2] for g in gaps if g[1] == f)
+            r = rows.get(f, 0)
+            rows[f] = r + 1
+            out.append(_horizontal(e, xo + 3, FB_Y + 6 * r, f))
+            bridges.remove(e)
+
+    # остальное - перемычки над линией, короткие ниже; высота - по верхнему краю того, что под ними
+    obstacles = [r for _, _, r in _element_boxes(out)]
+    for p in out:
+        for node, (end, d) in zip(p.e["nodes"], p.ends):
+            if node == "0" and d == "up":
+                obstacles.append(_ground_box(end, d))
+    for net, (_, pt, _) in out.labels.items():
+        obstacles.append(_text_box(pt[0], pt[1], net))
+    for e in sorted(bridges, key=lambda e: abs(nx[e["nodes"][0]] - nx[e["nodes"][1]])):
+        a, b = sorted(e["nodes"], key=lambda n: nx[n])
+        left = (nx[a] + nx[b]) // 2 - 3
+        lo, hi = min(nx[a], left) - 1, max(nx[b], left + 6) + 1
+        top = min([r[1] for r in obstacles if r[0] < hi and r[2] > lo] + [-1])
+        p = _horizontal(e, left, math.floor(top - 2), a, "hb")
+        out.append(p)
+        obstacles += [r for _, _, r in _element_boxes([p])]
+    return out
+
+
+def _shifted(lay, dx, dy):
+    """Сдвиг раскладки на целое число шагов."""
+    mv = lambda q: (q[0] + dx, q[1] + dy)
+    out = Layout(Placed(p.e, p.x + dx, p.y + dy, p.rot, [mv(q) for q in p.pins], p.kind,
+                        [(mv(q), d) for q, d in p.ends]) for p in lay)
+    out.labels = {n: (i, mv(pt), [(mv(a), mv(b)) for a, b in stub]) for n, (i, pt, stub) in lay.labels.items()}
+    return out
+
+
+def _frame(lay):
+    """Чертёж без трассировки: элементы, земли, отводы и метки IN/OUT - для проверки наложений до разводки."""
+    grounds, wires, labels = [], [], []
+    for i, p in enumerate(lay):
+        for node, pin, (end, d) in zip(p.e["nodes"], p.pins, p.ends):
+            if node == "0":
+                gpt, gd = ground_at(pin, end, d)
+                grounds.append((gpt, gd, i))
+                if gpt != pin:
+                    wires.append((pin, gpt, "0"))
+    for net, (i, pt, stub) in lay.labels.items():
+        wires += [(a, b, net) for a, b in stub]
+        labels.append((net, pt, i))
+    return Drawing(lay, wires, labels, grounds, set())
+
+
 def layout(elems):
-    """-> [Placed]: элемент, точка привязки и поворот, выводы в порядке nodes, точки меток. Шаги сетки."""
+    """-> [Placed]: элемент, точка привязки и поворот, выводы в порядке nodes, точки меток. Шаги сетки.
+    Сначала раскладка по пути сигнала (с растущими промежутками, пока что-то накладывается), иначе - сетка."""
+    for spread in (0, 2, 4):
+        try:
+            lay = _flow_layout(elems, spread)
+        except (KeyError, ValueError, StopIteration):
+            lay = None
+        if lay is None:
+            break
+        b = [r for _, _, r in _element_boxes(lay)]
+        lay = _shifted(lay, 4 - math.floor(min(r[0] for r in b)), 8 - math.floor(min(r[1] for r in b)))
+        pins = [q for p in lay for q in p.pins]
+        if len(set(pins)) == len(pins) and not overlaps(_frame(lay)):
+            return lay
+    return _grid_layout(elems)
+
+
+def _grid_layout(elems):
+    """Прежняя раскладка сеткой: источники слева, последовательные элементы строками, на землю - ниже, ОУ внизу."""
     placed = []
     for k, e in enumerate(e for e in elems if e["type"] in "VI"):
         x, y = SOURCE_X, 16 + SOURCE_DY * k
