@@ -66,7 +66,8 @@ def generate(model, tok, prompts, fmt="netlist", batch=8, max_new_tokens=MAX_NEW
     # конец реплики шаблона (<|im_end|>) - eos токенизатора; у Qwen3.5 нет generation_config, и без этого
     # генерация останавливалась бы только на <|endoftext|>, то есть через max_new_tokens
     stop = model.generation_config.eos_token_id
-    stop = sorted({tok.eos_token_id} | set(stop if isinstance(stop, list) else [stop] if stop is not None else []))
+    stop = sorted({tok.eos_token_id} | set(training.end_of_turn(tok))
+                  | set(stop if isinstance(stop, list) else [stop] if stop is not None else []))
     out, start = [], time.time()
     for i in range(0, len(prompts), batch):
         texts = [training.chat_text(tok, training.messages(p, fmt=fmt)) for p in prompts[i:i + batch]]
