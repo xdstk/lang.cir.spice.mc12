@@ -25,6 +25,7 @@ CELLS = [
 """),
     md("## 1. Среда\nСтавим библиотеки и проверяем, какой GPU выдан."),
     code("""
+%cd /content
 !pip -q install -U transformers peft accelerate bitsandbytes
 !nvidia-smi --query-gpu=name,memory.total --format=csv
 """),
@@ -34,7 +35,8 @@ Drive попросит разрешение. Код берётся из GitHub, 
 Если репозиторий закрытый, нужен токен только на чтение: значок ключа слева → секрет `GITHUB_TOKEN`, доступ для ноутбука включён. В текст ячеек и в чат токен не вставлять.
 """),
     code("""
-import subprocess
+import os, subprocess
+os.chdir('/content')  # при повторном запуске текущая папка - /content/repo, которую ячейка сейчас удалит
 from google.colab import drive, userdata
 drive.mount('/content/drive')
 try:
@@ -46,7 +48,7 @@ REPO = 'github.com/xdstk/lang.cir.spice.mc12'
 done = subprocess.run(['git', 'clone', '-q', '--depth', '1', f'https://x-access-token:{token}@{REPO}' if token else f'https://{REPO}', '/content/repo'],
                       capture_output=True, text=True, env={'GIT_TERMINAL_PROMPT': '0', 'PATH': '/usr/bin:/bin:/usr/local/bin'})
 if done.returncode:
-    raise SystemExit('Код не скачан: нет доступа к репозиторию. Проверьте секрет GITHUB_TOKEN.')
+    raise SystemExit('Код не скачан: ' + done.stderr.replace(token or '<нет>', '***').strip())
 !git -C /content/repo remote set-url origin https://{REPO}
 %cd /content/repo
 !git log --oneline -1
