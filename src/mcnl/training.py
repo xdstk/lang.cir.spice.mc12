@@ -57,15 +57,17 @@ def answer_for(rec, fmt="netlist"):
 
 
 def chat_text(tokenizer, msgs):
-    """Текст запроса к модели. У шаблонов без роли system (Gemma) инструкция идёт в начало запроса."""
+    """Текст запроса к модели. У шаблонов без роли system (Gemma) инструкция идёт в начало запроса.
+    Рассуждение (<think>, Qwen3.5) выключено: модель сразу пишет ответ; шаблоны без этого флага его не замечают."""
     msgs = [m for m in msgs if m["role"] != "assistant"]
+    kw = {"tokenize": False, "add_generation_prompt": True, "enable_thinking": False}
     try:
-        return tokenizer.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+        return tokenizer.apply_chat_template(msgs, **kw)
     except Exception as err:  # шаблон модели запрещает system
         if msgs[0]["role"] != "system" or "system" not in str(err).lower():
             raise
         merged = [{"role": "user", "content": msgs[0]["content"] + "\n\n" + msgs[1]["content"]}]
-        return tokenizer.apply_chat_template(merged, tokenize=False, add_generation_prompt=True)
+        return tokenizer.apply_chat_template(merged, **kw)
 
 
 def encode(tokenizer, msgs, max_len):

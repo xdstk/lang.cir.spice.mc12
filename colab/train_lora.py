@@ -58,6 +58,7 @@ def main():
     ap.add_argument("--lora-r", type=int, default=16)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--eval-records", type=int, default=40)
+    ap.add_argument("--max-steps", type=int, default=-1, help="проба: столько шагов и оценка времени полного обучения")
     a = ap.parse_args()
     set_seed(a.seed)
     out = Path(a.out)
@@ -88,7 +89,7 @@ def main():
 
     steps = math.ceil(len(train) / a.batch / a.accum) * a.epochs
     args = TrainingArguments(
-        output_dir=str(out / "checkpoints"), num_train_epochs=a.epochs, per_device_train_batch_size=a.batch,
+        output_dir=str(out / "checkpoints"), num_train_epochs=a.epochs, max_steps=a.max_steps, per_device_train_batch_size=a.batch,
         per_device_eval_batch_size=a.batch, gradient_accumulation_steps=a.accum, learning_rate=a.lr, lr_scheduler_type="cosine",
         warmup_steps=max(1, int(0.05 * steps)), bf16=bf16, fp16=not bf16, logging_steps=max(1, int(steps) // 40), eval_strategy="epoch", save_strategy="steps", save_steps=100,
         save_total_limit=2, report_to=[], seed=a.seed, remove_unused_columns=False,
@@ -110,6 +111,9 @@ def main():
             "versions": {"torch": torch.__version__, "transformers": transformers.__version__, "peft": peft.__version__}}
     (out / "run.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"готово: {meta['train_seconds'] / 60:.1f} мин, пик GPU {meta['gpu_peak_gb']:.1f} ГБ", flush=True)
+    if a.max_steps > 0:  # первые шаги медленнее остальных, оценка с запасом
+        sec = meta["train_seconds"] / a.max_steps
+        print(f"проба: {sec:.1f} с на шаг; полное обучение - {int(steps)} шагов, около {sec * steps / 3600:.1f} ч", flush=True)
 
 
 if __name__ == "__main__":

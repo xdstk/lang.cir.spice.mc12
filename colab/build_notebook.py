@@ -55,35 +55,57 @@ if done.returncode:
 """),
     md("""
 ## 3. Настройки запуска
-Значения ниже - проба конвейера (фаза 2): 200 записей, задача лишь показать, что всё работает и модель учится. Это не результат работы.
+Фаза 3 - отбор моделей: у всех кандидатов одни условия (v2, 2000 записей, 2 эпохи, seed 1), меняются только `MODEL` и `RUN`.
+Проба фазы 2 запускалась так: `Qwen/Qwen2.5-7B-Instruct`, `RUN='smoke1'`, `SUBSET=1000`, `LIMIT=200`, `EPOCHS=5`.
 """),
     code("""
-MODEL = 'Qwen/Qwen2.5-7B-Instruct'
-RUN = 'smoke1'         # имя запуска: папка на Drive
-SUBSET = 1000          # вложенное подмножество train v2: 1000, 2000 или 3000
-LIMIT = 200            # сколько записей взять из подмножества; 0 - все
+MODEL = 'Qwen/Qwen3.5-4B'
+RUN = 'q35_4b'         # имя запуска: папка на Drive
+SUBSET = 2000          # вложенное подмножество train v2: 1000, 2000 или 3000
+LIMIT = 0              # сколько записей взять из подмножества; 0 - все
 FORMAT = 'netlist'     # netlist или ir
-EPOCHS = 5
+EPOCHS = 2
 SEED = 1
 OUT = f'/content/drive/MyDrive/mcnl/{RUN}'
 !mkdir -p {OUT}
 !python src/mcnl/training.py --data data/dataset/v2 --subset {SUBSET} --limit {LIMIT} --format {FORMAT} --out out/training/{RUN}
 """),
     md("""
-## 4. Модель без обучения
+## 4. Проба модели
+Шаблон чата: в конце запроса должно стоять `<think>
+
+</think>` (рассуждение выключено) или просто начало ответа ассистента, а учиться модель должна только нетлисту и концу реплики. Затем 10 шагов обучения во временную папку: проверка, что модель обучается на T4, и оценка времени полного запуска.
+"""),
+    code("""
+import sys
+sys.path.insert(0, 'src')
+from transformers import AutoTokenizer
+from mcnl import training
+tok = AutoTokenizer.from_pretrained(MODEL)
+recs = training.read_jsonl(f'out/training/{RUN}/train.jsonl')
+e = training.encode(tok, recs[0]['messages'], 10 ** 6)
+print(tok.decode(e['input_ids'])[-300:])
+print('УЧИТСЯ:', repr(tok.decode([t for t, l in zip(e['input_ids'], e['labels']) if l != -100])))
+lens = sorted(len(training.encode(tok, r['messages'], 10 ** 6)['input_ids']) for r in recs)
+print(f'токенов в примере: медиана {lens[len(lens) // 2]}, максимум {lens[-1]}')
+!rm -rf /content/probe
+!python colab/train_lora.py --model {MODEL} --data out/training/{RUN} --out /content/probe --epochs {EPOCHS} --seed {SEED} --max-steps 10
+"""),
+    md("""
+## 5. Модель без обучения
 Первая загрузка скачивает веса. Ответы на 30 записей dev - точка отсчёта: что умеет модель до обучения, только по инструкции.
 """),
     code("""
 !python colab/predict.py --model {MODEL} --format {FORMAT} --records data/dataset/v2/dev.jsonl --limit 30 --out {OUT}/untrained_dev.jsonl --name untrained
 """),
     md("""
-## 5. Обучение
+## 6. Обучение
 Здесь видны полоса прогресса, потери `loss` по шагам и `eval_loss` по эпохам. `loss` должен падать. Если он стоит на месте или становится `nan`, обучение идёт неправильно.
 """),
     code("""
 !python colab/train_lora.py --model {MODEL} --data out/training/{RUN} --out {OUT} --epochs {EPOCHS} --seed {SEED}
 """),
-    md("## 6. График обучения\nСохраняется на Drive как `loss.png`: годится для текста работы."),
+    md("## 7. График обучения\nСохраняется на Drive как `loss.png`: годится для текста работы."),
     code("""
 import json, matplotlib.pyplot as plt
 run = json.load(open(f'{OUT}/run.json', encoding='utf-8'))
@@ -100,17 +122,17 @@ print('Отброшено длинных примеров (train, dev):', run['d
 print('Версии:', run['versions'])
 """),
     md("""
-## 7. Ответы обученной модели
-Три набора: 30 записей из обучающей выборки (модель должна справиться почти полностью), dev и запросы C01, которых модель не видела и которые написаны не шаблонами.
+## 8. Ответы обученной модели
+Три набора: 30 записей из обучающей выборки (модель должна справиться почти полностью), весь dev (150) и запросы C01, которых модель не видела и которые написаны не шаблонами.
 """),
     code("""
 A = f'--model {MODEL} --adapter {OUT}/adapter --format {FORMAT} --name {RUN}'
 !python colab/predict.py {A} --records data/dataset/v2/train.jsonl --limit 30 --out {OUT}/train30.jsonl
-!python colab/predict.py {A} --records data/dataset/v2/dev.jsonl --limit 30 --out {OUT}/dev.jsonl
+!python colab/predict.py {A} --records data/dataset/v2/dev.jsonl --out {OUT}/dev.jsonl
 !python colab/predict.py {A} --records data/human_test/v1/paraphrase.jsonl --out {OUT}/paraphrase.jsonl
 """),
     md("""
-## 8. Что получилось
+## 9. Что получилось
 Здесь быстрая прикидка: точное совпадение строк ответа с эталоном, без учёта порядка. Настоящая оценка с MC12 идёт отдельно, на ноутбуке с Micro-Cap: она считает схему верной и при других именах узлов, поэтому её цифры выше.
 """),
     code("""
