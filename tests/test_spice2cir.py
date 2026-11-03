@@ -76,6 +76,19 @@ class Build(unittest.TestCase):
         self.assertGreater(x, spice2cir.extent(placed)[0])
         self.assertGreaterEqual(y - spice2cir.TEXT_LINE * len(note), 0)
 
+    def test_nothing_overlaps(self):
+        # корпуса, земли, отводы, метки и подписи не накладываются (раньше земля питания ложилась на ОУ)
+        for r in PILOT + TEST:
+            with self.subTest(ref=r["id"]):
+                self.assertEqual(spice2cir.overlaps(spice2cir.layout(canon.parse_netlist(r["netlist"])[0])), [])
+
+    def test_grounds_point_away(self):
+        placed = spice2cir.layout(canon.parse_netlist("V1 IN 0 DC 0\nR1 IN N1 1k\nC1 N1 0 1n\nX1 0 N1 OUT OPAMP_IDEAL\n")[0])
+        c1 = [p for p in placed if p.e["name"] == "C1"][0]
+        self.assertEqual(c1.kind, "down")  # элемент на землю стоит вертикально, земля снизу
+        text = spice2cir.build("V1 IN 0 DC 0\nX1 0 IN OUT OPAMP_IDEAL\n")
+        self.assertIn("[Wire]", text)  # земля на входе ОУ - на конце отвода
+
     def test_scale_is_an_mc12_step(self):
         # другие значения MC12 молча заменяет на 1
         for r in TEST[:50]:

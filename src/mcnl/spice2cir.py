@@ -3,16 +3,19 @@
 
 Запуск:  python spice2cir.py нетлист.ckt схема.cir [--fchar 1591]
 
-Раскладка простая (CLAUDE.md): источник слева, двухполюсники сеткой по строкам, ОУ ниже; провода не
-рисуются - соединения задаются метками узлов (Grid Text на выводах, RM12 с. 45-46, 67; вариант без
-проводов проверен в MC12). На узел 0 ставится символ земли. ОУ - элемент Opamp с моделью OPAMP_IDEAL
+Раскладка простая (CLAUDE.md): источник слева, последовательные двухполюсники строками, элементы на землю -
+вертикально отдельными строками, ОУ ниже. Соединения задаются метками узлов (Grid Text на выводах, RM12
+с. 45-46, 67; вариант без проводов проверен в MC12); провода - только короткие отводы, на которых стоят метки.
+На узел 0 ставится символ земли, направленный от элемента наружу; элементы, метки и земли не перекрываются. ОУ - элемент Opamp с моделью OPAMP_IDEAL
 уровня 1: A = 1e6, R = ROUTAC + ROUTDC = 1 Ом (RM12 с. 728, 732), выводы питания не подключены
 (у уровня 1 они не влияют на передачу). Описания фигур и элементов - data/cir_templates.cir.
 В схему кладутся текст с исходным нетлистом и анализ AC (диапазон обвязки bench) с графиком dB(V(OUT)).
 Файл - ASCII с CRLF (CLAUDE.md).
 """
+import math
 import re
 import sys
+from collections import namedtuple
 from pathlib import Path
 
 try:
@@ -30,17 +33,35 @@ COMP = {"R": ("Resistor", "RESISTANCE"), "C": ("Capacitor", "CAPACITANCE"), "L":
 TWO_PIN = {"minus": (0, 0), "plus": (6, 0)}
 OPAMP_PINS = {"plus": (0, 0), "minus": (0, 6), "out": (9, 3), "vee": (4, 7), "vcc": (4, -1)}
 ROT_UP = 3          # (x, y) -> (y, -x): плюс источника над минусом
-GRID_X, GRID_Y, COLS = 14, 10, 4
+# Раскладка, шаги сетки. Метка узла привязана за нижний левый угол и тянется вправо-вверх, поэтому к выводам слева
+# и снизу ведёт отвод STUB (провод), а метка стоит на его конце - иначе она легла бы на сам элемент.
+X0, STUB, STUB_DOWN = 20, 3, 2
+SERIES_DX, SERIES_DY, SERIES_COLS = 16, 10, 4
+SHUNT_DX, SHUNT_DY, SHUNT_COLS = 11, 14, 6
+OPAMP_DX, SOURCE_X, SOURCE_DY = 24, 6, 14
+GROUND_ROT = {"right": 0, "down": 1, "left": 2, "up": 3}  # линия земли (12,0) px, поворот как в rotate
+GROUND_LEN = 3
+# подписи PART и значения, px от точки привязки (верхний левый угол текста): у горизонтального - под элементом,
+# у вертикального - справа (как у резисторов в примерах DATA), у ОУ - справа снизу, мимо земель питания
+ATTRS = {"h": ((18, 6), (18, 20)), "down": ((8, 11), (8, 25)), "up": ((8, -37), (8, -23)),
+         "source": ((14, -37), (14, -23)), "opamp": ((76, 40), (76, 54))}
+Placed = namedtuple("Placed", "e x y rot pins kind ends")  # ends: (точка метки, направление наружу) на вывод
+
+
+def ground_at(pin, end, d):
+    """-> (точка земли, направление). Земля у вывода смотрит наружу; у входов ОУ (отвод влево) земля ставится на
+    конце отвода и смотрит вниз: повёрнутая влево, она читается хуже."""
+    return (end, "down") if d == "left" else (pin, d)
 # Текст с нетлистом: MC12 привязывает многострочный Grid Text за нижний левый угол и поле JustifyV=Top в нашем
 # файле не принимает (проверено 03.11.2026), поэтому блок ставится справа от схемы с учётом его высоты.
 # Строка шрифта по умолчанию (Verdana 12) - около 2 шагов сетки, знак - около 0,9 шага.
 TEXT_LINE, TEXT_CHAR, TEXT_GAP = 2, 0.9, 6
 # Масштаб окна схемы: поля Scale 0..3 страницы Main - сколько единиц чертежа на пиксель, меньше 1 - крупнее
 # (проверено 03.11.2026; [Schematic] Scale MC12 при загрузке не читает). Принимаются только шаги масштаба MC12:
-# 0.5, 2/3 и 2 сработали, 0.6 и 0.95 MC12 молча заменил на 1. VIEW - видимая часть окна при масштабе 1 в шагах
-# сетки, замер на ноутбуке автора (развёрнутое окно MC12). Берётся самый крупный шаг, при котором всё помещается.
-VIEW_W, VIEW_H = 135, 52
-SCALES = (0.5, 2 / 3, 1, 2)
+# 0.5, 2/3 и 2 сработали, 0.6, 0.95 и 1.5 MC12 молча заменил на 1. VIEW - видимая часть окна при масштабе 1 в шагах
+# сетки от края содержимого, замер на ноутбуке автора (развёрнутое окно MC12, 4,5 px на шаг на снимке 0,6). Берётся самый крупный шаг, при котором всё помещается.
+VIEW_W, VIEW_H = 155, 60
+SCALES = (2 / 3, 1, 2)  # 0.5 тоже работает, но маленькая схема при нём непомерно крупная
 
 
 def rotate(x, y, rot):
@@ -62,11 +83,70 @@ def _text(lines, x, y):
     return f"[Grid Text]\n{body}\nGrid={x},{y}\nCBorder=None"
 
 
+def _attr_texts(e):
+    value = OPAMP_MODEL.split()[1] if e["type"] == "OPAMP" else (
+        _source_value(e) if e["type"] in "VI" else e["value"])
+    return e["name"], value
+
+
+def _text_box(x, y, text, top=False):
+    """Прямоугольник текста в шагах сетки: знак - TEXT_CHAR, строка - 1,5 шага; Grid Text привязан снизу слева."""
+    w = TEXT_CHAR * len(text)
+    return (x, y, x + w, y + 1.5) if top else (x, y - 1.5, x + w, y)
+
+
+def boxes(placed):
+    """-> [(вид, номер элемента, (x0, y0, x1, y1))] - что занимает место на чертеже: корпуса, земли, отводы,
+    метки узлов и подписи. Нужно для проверки, что ничего не накладывается, и для границ чертежа."""
+    out = []
+    for i, p in enumerate(placed):
+        e, x, y = p.e, p.x, p.y
+        if p.kind == "h":
+            out.append(("body", i, (x + 0.5, y - 0.75, x + 5.5, y + 0.75)))
+        elif p.kind in ("down", "up"):
+            y0, y1 = sorted(py for _, py in p.pins)
+            out.append(("body", i, (x - 0.75, y0 + 0.5, x + 0.75, y1 - 0.5)))
+        elif p.kind == "source":
+            out.append(("body", i, (x - 1.5, y - 5, x + 1.5, y - 1)))
+        else:
+            out.append(("body", i, (x + 1, y - 0.5, x + 8, y + 6.5)))
+        for (ox, oy), text in zip(ATTRS[p.kind], _attr_texts(e)):
+            out.append(("text", i, _text_box(x + ox / 8, y + oy / 8, text, top=True)))
+        for node, (px, py), ((ex, ey), d) in zip(e["nodes"], p.pins, p.ends):
+            if node == "0":
+                (gx, gy), gd = ground_at((px, py), (ex, ey), d)
+                g = {"right": (gx, gy - 1, gx + GROUND_LEN, gy + 1), "down": (gx - 1, gy, gx + 1, gy + GROUND_LEN),
+                     "left": (gx - GROUND_LEN, gy - 1, gx, gy + 1), "up": (gx - 1, gy - GROUND_LEN, gx + 1, gy)}[gd]
+                out.append(("ground", i, g))
+                if (gx, gy) != (px, py):
+                    out.append(("wire", i, (min(px, gx), min(py, gy), max(px, gx), max(py, gy))))
+                continue
+            if (ex, ey) != (px, py):
+                out.append(("wire", i, (min(px, ex), min(py, ey), max(px, ex), max(py, ey))))
+            out.append(("label", i, _text_box(ex, ey, node)))
+    return out
+
+
 def extent(placed):
-    """Правый и нижний край раскладки в шагах сетки: по выводам, точкам привязки и подписям (до 4 шагов вправо)."""
-    xs = [x for _, x, _, _, _ in placed] + [px for *_, pins in placed for px, _ in pins]
-    ys = [y for _, _, y, _, _ in placed] + [py for *_, pins in placed for _, py in pins]
-    return max(xs) + 4, max(ys) + 2
+    """Правый и нижний край чертежа в шагах сетки."""
+    b = [r for *_, r in boxes(placed)]
+    return math.ceil(max(r[2] for r in b)), math.ceil(max(r[3] for r in b))
+
+
+def overlaps(placed, margin=0.1):
+    """Пары того, что накладывается: корпуса, земли и тексты не должны задевать друг друга; отвод может касаться
+    только своего элемента. Касание по краю (в пределах margin) не считается."""
+    b = boxes(placed)
+    hit = []
+    for j, (k1, i1, r1) in enumerate(b):
+        for k2, i2, r2 in b[j + 1:]:
+            if i1 == i2 and "body" not in (k1, k2) and "text" not in (k1, k2):
+                continue  # метка на своём отводе, земля у своего вывода
+            if i1 == i2 and {k1, k2} in ({"body", "wire"}, {"body", "label"}, {"wire", "label"}):
+                continue  # отвод и метка начинаются у вывода своего элемента
+            if min(r1[2], r2[2]) - max(r1[0], r2[0]) > margin and min(r1[3], r2[3]) - max(r1[1], r2[1]) > margin:
+                hit.append(((k1, placed[i1].e["name"]), (k2, placed[i2].e["name"])))
+    return hit
 
 
 def note_place(placed, lines):
@@ -77,10 +157,12 @@ def note_place(placed, lines):
 
 def view_scale(placed, lines):
     """Шаг масштаба MC12, при котором схема и текст помещаются в окно."""
+    b = [r for *_, r in boxes(placed)]
     right, bottom = extent(placed)
     x, y = note_place(placed, lines)
-    width = x + TEXT_CHAR * max(len(l) for l in lines) + 2
-    height = max(bottom, y) + 2
+    # MC12 открывает окно с верхнего левого края содержимого, а не с начала листа (видно по снимкам)
+    width = x + TEXT_CHAR * max(len(l) for l in lines) + 2 - min(r[0] for r in b)
+    height = max(bottom, y) + 2 - min(r[1] for r in b)
     need = max(width / VIEW_W, height / VIEW_H)
     return next((k for k in SCALES if k >= need), SCALES[-1])
 
@@ -97,27 +179,41 @@ def _source_value(e):
     return f"DC {e['value']} AC 1" if e["nodes"][0] == "IN" else f"DC {e['value']}"
 
 
+def _two_pin(e, x, y, vertical):
+    if not vertical:
+        return Placed(e, x, y, 0, [(x, y), (x + 6, y)], "h", [((x - STUB, y), "left"), ((x + 6, y), "right")])
+    if e["nodes"][1] == "0":  # земля на плюс-выводе: Rot 1, корпус вниз от точки привязки
+        return Placed(e, x, y, 1, [(x, y), (x, y + 6)], "down", [((x, y), "up"), ((x, y + 6), "down")])
+    # земля на минус-выводе: Rot 3, точка привязки (минус) внизу
+    return Placed(e, x, y + 6, 3, [(x, y + 6), (x, y)], "up", [((x, y + 6), "down"), ((x, y), "up")])
+
+
 def layout(elems):
-    """-> [(элемент, x, y, rot, [точки выводов в порядке nodes])], координаты - шаги сетки."""
-    placed, k = [], 0
-    for e in elems:
-        if e["type"] in "VI":
-            x, y = 6, 30
-            pins = {n: (x + px, y + py) for n, (px, py) in
-                    (("plus", rotate(*TWO_PIN["plus"], ROT_UP)), ("minus", rotate(*TWO_PIN["minus"], ROT_UP)))}
-            placed.append((e, x, y, ROT_UP, [pins["plus"], pins["minus"]]))
+    """-> [Placed]: элемент, точка привязки и поворот, выводы в порядке nodes, точки меток. Шаги сетки."""
+    placed = []
+    for k, e in enumerate(e for e in elems if e["type"] in "VI"):
+        x, y = SOURCE_X, 16 + SOURCE_DY * k
+        down = (x, y + STUB_DOWN) if e["nodes"][1] != "0" else (x, y)
+        placed.append(Placed(e, x, y, ROT_UP, [(x, y - 6), (x, y)], "source", [((x, y - 6), "up"), (down, "down")]))
     two = [e for e in elems if e["type"] in "RCL"]
-    for i, e in enumerate(two):
-        x, y = 20 + GRID_X * (i % COLS), 14 + GRID_Y * (i // COLS)
-        placed.append((e, x, y, 0, [(x + TWO_PIN["minus"][0], y), (x + TWO_PIN["plus"][0], y)]))
-    y0 = 14 + GRID_Y * ((len(two) + COLS - 1) // COLS) + 4
+    series = [e for e in two if "0" not in e["nodes"]]
+    shunt = [e for e in two if "0" in e["nodes"]]
+    y = 8
+    for i, e in enumerate(series):
+        placed.append(_two_pin(e, X0 + SERIES_DX * (i % SERIES_COLS), y + SERIES_DY * (i // SERIES_COLS), False))
+    y += SERIES_DY * math.ceil(len(series) / SERIES_COLS)
+    for i, e in enumerate(shunt):  # +2: место для меток над верхними выводами
+        placed.append(_two_pin(e, X0 + SHUNT_DX * (i % SHUNT_COLS), y + 2 + SHUNT_DY * (i // SHUNT_COLS), True))
+    y = max(y + SHUNT_DY * math.ceil(len(shunt) / SHUNT_COLS) + 5, 24)  # +5: земля питания над ОУ; не выше источника
     for j, e in enumerate(e for e in elems if e["type"] == "OPAMP"):
-        x, y = 20 + 22 * j, y0
+        x = X0 + OPAMP_DX * j
         # выводы питания - на землю: у модели уровня 1 они не влияют на передачу, а неподключённые
         # дают предупреждение MC12 «Nodes have no DC path to ground. Resistors added»
         e = dict(e, nodes=list(e["nodes"]) + ["0", "0"])
-        placed.append((e, x, y, 0, [(x + OPAMP_PINS[p][0], y + OPAMP_PINS[p][1])
-                                    for p in ("plus", "minus", "out", "vee", "vcc")]))
+        pins = [(x + OPAMP_PINS[p][0], y + OPAMP_PINS[p][1]) for p in ("plus", "minus", "out", "vee", "vcc")]
+        ends = [((x - STUB, y), "left"), ((x - STUB, y + 6), "left"), (pins[2], "right"), (pins[3], "down"),
+                (pins[4], "up")]
+        placed.append(Placed(e, x, y, 0, pins, "opamp", ends))
     return placed
 
 
@@ -140,19 +236,26 @@ def build(netlist, f_char=None, title="spice2cir"):
     placed = layout(elems)
     note = [f"{title}: netlist (spice2cir)"] + netlist.strip().splitlines() + ["AC analysis: Alt+2"]
     scale = view_scale(placed, note)
-    for e, x, y, rot, pins in placed:
+    for p in placed:
+        e = p.e
         name, vattr = COMP["V" if e["type"] in "VI" else e["type"]]
-        value = OPAMP_MODEL.split()[1] if e["type"] == "OPAMP" else (
-            _source_value(e) if e["type"] in "VI" else e["value"])
-        parts.append(_comp(name, x, y, rot, [((8, -14), "PART", e["name"]), ((8, -26), vattr, value)]))
-        for node, (px, py) in zip(e["nodes"], pins):
-            if (px, py) in used:
-                raise AssertionError(f"совпали точки выводов в ({px}, {py})")  # иначе выводы замкнулись бы
-            used.add((px, py))
+        part, value = _attr_texts(e)
+        (op, ov) = ATTRS[p.kind]
+        parts.append(_comp(name, p.x, p.y, p.rot, [(op, "PART", part), (ov, vattr, value)]))
+        for node, (px, py), ((ex, ey), d) in zip(e["nodes"], p.pins, p.ends):
+            for pt in {(px, py), (ex, ey)}:
+                if pt in used:
+                    raise AssertionError(f"совпали точки выводов в {pt}")  # иначе выводы замкнулись бы
+                used.add(pt)
             if node == "0":
-                parts.append(_comp("Ground", px, py, 7, []))
-            else:
-                parts.append(_text([node], px, py))
+                (gx, gy), gd = ground_at((px, py), (ex, ey), d)
+                if (gx, gy) != (px, py):
+                    parts.append(f"[Wire]\nGrids={px},{py},{gx},{gy}")
+                parts.append(_comp("Ground", gx, gy, GROUND_ROT[gd], []))
+                continue
+            if (ex, ey) != (px, py):
+                parts.append(f"[Wire]\nGrids={px},{py},{ex},{ey}")
+            parts.append(_text([node], ex, ey))
     parts.append(_text(note, *note_place(placed, note)))
     fl, fh = bench.ac_range(f_char)
     parts.append("[Section]\nIndex=0\nName=\"spice2cir\"\nType=Main\nEnable=True")
