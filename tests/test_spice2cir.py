@@ -35,6 +35,59 @@ def elements_of(spice):
     return elems
 
 
+def strict_problems(drawing):
+    """Связность чертежа по правилам MC12 при загрузке файла: провод соединяется только концом с концом другого
+    провода или с выводом; метка и земля - только в такой точке. -> список нарушений (пусто - узлы как в нетлисте)."""
+    parent = {}
+
+    def find(a):
+        parent.setdefault(a, a)
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    def union(a, b):
+        parent[find(a)] = find(b)
+
+    pins = {pin for p in drawing.placed for pin in p.pins}
+    ends = {q for a, b, _ in drawing.wires for q in (a, b)}
+    joints = pins | ends
+    problems = []
+    inner = {}  # внутренняя точка провода -> [(цепь, горизонтален ли)]
+    for a, b, net in drawing.wires:
+        union(a, b)
+        for q in spice2cir._segment_points(a, b)[1:-1]:
+            inner.setdefault(q, []).append((net, a[1] == b[1]))
+    for q, ws in inner.items():
+        if q in joints:
+            problems.append(f"конец провода или вывод на середине провода {q}")
+        if len(ws) > 1 and not (len(ws) == 2 and ws[0][1] != ws[1][1]):
+            problems.append(f"провода лежат друг на друге в {q}")
+    for text, pt, _ in drawing.labels:
+        if pt not in joints:
+            problems.append(f"метка {text} не на конце провода или выводе {pt}")
+        union(pt, ("label", text))
+    for pt, _, _ in drawing.grounds:
+        if pt not in joints:
+            problems.append(f"земля не на конце провода или выводе {pt}")
+        union(pt, ("label", "0"))
+    comp = {}
+    for p in drawing.placed:
+        for node, pin in zip(p.e["nodes"], p.pins):
+            comp.setdefault(node, set()).add(find(pin))
+    for node, roots in comp.items():
+        if len(roots) > 1:
+            problems.append(f"узел {node} разорван на {len(roots)} части")
+    seen = {}
+    for node, roots in comp.items():
+        for r in roots:
+            if r in seen and seen[r] != node:
+                problems.append(f"слились узлы {seen[r]} и {node}")
+            seen[r] = node
+    return problems
+
+
 def roundtrip_ok(netlist, f_char=None):
     spice, info = cir2spice.convert(spice2cir.build(netlist, f_char), "t")
     return not info["errors"] and iso.match(canon.parse_netlist(netlist)[0], elements_of(spice), "values")["match"]
@@ -81,6 +134,25 @@ class Build(unittest.TestCase):
         for r in PILOT + TEST:
             with self.subTest(ref=r["id"]):
                 self.assertEqual(spice2cir.overlaps(spice2cir.layout(canon.parse_netlist(r["netlist"])[0])), [])
+
+    def test_wires_connect_only_at_ends(self):
+        # cir2spice соединяет и конец провода с серединой другого, MC12 при загрузке файла - нет: проверка строже
+        rows = PILOT + TEST + [json.loads(l) for l in (ROOT / "data" / "dataset" / "v2" / "test.jsonl")
+                               .read_text(encoding="utf-8").splitlines()]
+        unrouted = 0
+        for r in rows:
+            if not r.get("netlist"):
+                continue
+            try:
+                placed = spice2cir.layout(canon.parse_netlist(r["netlist"])[0])
+            except ValueError:
+                continue  # вне класса чертежа (источник тока и т.п.)
+            d = spice2cir.draw(placed)
+            nets = {n for p in placed for n in p.e["nodes"] if n != "0"}
+            unrouted += len(nets - d.routed)
+            with self.subTest(ref=r["id"]):
+                self.assertEqual(strict_problems(d), [])
+        self.assertEqual(unrouted, 0)
 
     def test_grounds_point_away(self):
         placed = spice2cir.layout(canon.parse_netlist("V1 IN 0 DC 0\nR1 IN N1 1k\nC1 N1 0 1n\nX1 0 N1 OUT OPAMP_IDEAL\n")[0])
