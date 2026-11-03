@@ -22,7 +22,8 @@ class FakeTokenizer:
     eos_token_id = 0
     system_ok = True
 
-    def apply_chat_template(self, msgs, tokenize=False, add_generation_prompt=True):
+    def apply_chat_template(self, msgs, tokenize=False, add_generation_prompt=True, **kw):
+        self.kw = kw
         if not self.system_ok and msgs[0]["role"] == "system":
             raise ValueError("System role not supported")
         return "".join(f"<{m['role']}>{m['content']}" for m in msgs) + "<assistant>"
@@ -82,6 +83,11 @@ class Labels(unittest.TestCase):
         text = training.chat_text(tok, self.MSGS)
         self.assertIn("RC 1к", text)
         self.assertIn(training.SYSTEM["netlist"][:30], text)
+
+    def test_thinking_off(self):
+        tok = FakeTokenizer()
+        training.chat_text(tok, self.MSGS)
+        self.assertIs(tok.kw.get("enable_thinking"), False)
 
 
 def mc12_available():
