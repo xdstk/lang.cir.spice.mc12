@@ -18,8 +18,27 @@ def native_bf16():
     return torch.cuda.is_available() and torch.cuda.is_bf16_supported(including_emulation=False)
 
 
+def adapter_path(path):
+    """Папка адаптера с adapter_config.json. Если его нет, берётся последняя контрольная точка того же запуска
+    (<RUN>/checkpoints/checkpoint-N): на Drive после обрыва сессии в adapter/ остался один файл весов."""
+    import re
+    from pathlib import Path
+    p = Path(path)
+    if (p / "adapter_config.json").exists():
+        return str(p)
+    found = [c for c in (p.parent / "checkpoints").glob("checkpoint-*")
+             if re.fullmatch(r"checkpoint-\d+", c.name) and (c / "adapter_config.json").exists()]
+    if not found:
+        raise FileNotFoundError(f"нет adapter_config.json ни в {p}, ни в {p.parent / 'checkpoints'}")
+    last = max(found, key=lambda c: int(c.name.split("-")[1]))
+    print(f"в {p} нет adapter_config.json, беру контрольную точку {last}", flush=True)
+    return str(last)
+
+
 def load(base, adapter=None, four_bit=True):
     """-> (модель, токенизатор). bf16 - если поддерживается, иначе fp16 (GTX 1660 - только fp16)."""
+    if adapter:
+        adapter = adapter_path(adapter)  # до загрузки весов: ошибка видна сразу, а не через минуту
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
     tok = AutoTokenizer.from_pretrained(base)

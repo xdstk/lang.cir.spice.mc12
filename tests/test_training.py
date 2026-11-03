@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from mcnl import canon, evaluate, mc12run, score, training  # noqa: E402
+from mcnl import canon, evaluate, hf_runtime, mc12run, score, training  # noqa: E402
 
 V2 = ROOT / "data" / "dataset" / "v2"
 WORK = ROOT / "out" / "test_training"
@@ -106,6 +106,24 @@ class Predictions(unittest.TestCase):
         recs = training.read_jsonl(V2 / "dev.jsonl")[:3]
         with self.assertRaises(ValueError):
             evaluate.evaluate_predictions([{"id": "x", "model": "m", "output": ""}], recs, WORK / "bad")
+
+
+class AdapterPath(unittest.TestCase):
+    def test_falls_back_to_last_checkpoint(self):
+        run = WORK / "adapter_run"
+        shutil.rmtree(run, ignore_errors=True)
+        (run / "adapter").mkdir(parents=True)
+        (run / "adapter" / "adapter_model.safetensors").write_bytes(b"")
+        for n in (100, 125):
+            (run / "checkpoints" / f"checkpoint-{n}").mkdir(parents=True)
+            (run / "checkpoints" / f"checkpoint-{n}" / "adapter_config.json").write_text("{}")
+        self.assertEqual(Path(hf_runtime.adapter_path(run / "adapter")).name, "checkpoint-125")
+        (run / "adapter" / "adapter_config.json").write_text("{}")
+        self.assertEqual(Path(hf_runtime.adapter_path(run / "adapter")).name, "adapter")
+
+    def test_nothing_found(self):
+        with self.assertRaises(FileNotFoundError):
+            hf_runtime.adapter_path(WORK / "no_such_run" / "adapter")
 
 
 if __name__ == "__main__":
