@@ -26,9 +26,11 @@
 
 ## Как устроена работа
 
-Открыть ноутбук: https://colab.research.google.com/github/xdstk/lang.cir.spice.mc12/blob/main/colab/stage2.ipynb
+Ноутбук на каждый запуск (решение автора 03.11.2026), отличаются только настройками:
+- проба фазы 2, Qwen2.5 7B: https://colab.research.google.com/github/xdstk/lang.cir.spice.mc12/blob/main/colab/stage2_smoke1.ipynb
+- Qwen3.5-4B: https://colab.research.google.com/github/xdstk/lang.cir.spice.mc12/blob/main/colab/stage2_q35_4b.ipynb
 Репозиторий публичный (решение автора 02.11.2026): с токеном Colab код не скачал, причину не выясняли.
-Любой запуск в Colab лежит на Drive в `mcnl/<RUN>`: адаптер, `run.json`, `loss.png`, ответы. Ноутбук правится через `colab/build_notebook.py`.
+Любой запуск в Colab лежит на Drive в `mcnl/<RUN>`: адаптер, `run.json`, `loss.png`, ответы. Ноутбуки собирает `colab/build_notebook.py` (словарь `RUNS`), в JSON их не правят.
 
 ```
 репозиторий (GitHub) -> Colab: экспорт, обучение, ответы -> predictions.jsonl на Drive
@@ -40,7 +42,7 @@
 
 ## Состояние фазы 1 (02.11.2026)
 
-Сделано: `training.py` (инструкция, экспорт, метки), `hf_runtime.py`, переводчик `translators/hf_model.py`, `colab/train_lora.py`, `colab/predict.py`, `colab/stage2.ipynb`, `evaluate.py --predictions`.
+Сделано: `training.py` (инструкция, экспорт, метки), `hf_runtime.py`, переводчик `translators/hf_model.py`, `colab/train_lora.py`, `colab/predict.py`, ноутбуки `colab/stage2_*.ipynb`, `evaluate.py --predictions`.
 Проверено: экспорт v2, разбор всех эталонных ответов dev в обоих форматах; эталонные ответы, поданные как готовые, дают 100% S3 и S4c в MC12.
 Не проверено: обучение и генерация. У автора нет torch, GPU-код только компилируется; первый настоящий запуск - фаза 2.
 
@@ -93,6 +95,8 @@ Qwen2.5 7B, 200 записей, 5 эпох, 125 шагов, T4. Сессия Col
 Qwen3.5-4B проверена локально без весов (transformers 5.22.1, как в Colab): `AutoModelForCausalLM` строит только текстовую часть (`Qwen3_5ForCausalLM`), веса зрения и MTP пропускаются. Рассуждение включено по умолчанию: шаблон без флага заканчивает запрос `<think>`, поэтому `chat_text` передаёт `enable_thinking=False`. У модели нет `generation_config.json`, и генерация остановилась бы только на `<|endoftext|>`: `generate` теперь останавливается и на `<|im_end|>`. Примеры v2 (2000) - медиана 405 токенов, максимум 797. Не проверено: скорость гибридного внимания (Gated DeltaNet) на T4 без ядер flash-linear-attention - покажет ячейка 4 ноутбука (10 шагов и оценка времени).
 
 Перед обучением каждой модели - та же проба: шаблон чата, метки, 10 шагов.
+
+Проба Qwen3.5-4B в Colab (03.11.2026, T4): 16,5 с на шаг вместе с оценкой на dev, пик 9,4 ГБ, полное обучение (500 шагов) - около 2,3 ч. Обучается 32,5 млн параметров (0,77%). Ядра гибридного внимания (`causal_conv1d`, `flash-linear-attention`) не установлены, работает запасной путь на PyTorch. Не ставим: 2,3 ч укладываются в сессию; на ноутбуке автора (Windows) Triton нет, и там будет тот же запасной путь; сборка `causal_conv1d` под T4 не проверена. Время обучения в таблице - с этой пометкой.
 
 Условия одинаковы для всех: v2 (2000), 2 эпохи, seed 1, QLoRA r=16, нетлист. Оценка: полный dev (150) и C01 (38). Выбор: главный - S3 на C01, рядом S3 на dev; при близких результатах - меньшая модель. Затем на лучшей модели - нетлист против JSON-IR.
 
