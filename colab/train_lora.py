@@ -18,11 +18,31 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import torch  # noqa: E402
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training  # noqa: E402
-from transformers import (AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, Trainer, TrainingArguments,  # noqa: E402
-                          set_seed)
+from transformers import (AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, Trainer, TrainerCallback,  # noqa: E402
+                          TrainingArguments, set_seed)
 from transformers.trainer_utils import get_last_checkpoint  # noqa: E402
 
 from mcnl import hf_runtime, training  # noqa: E402
+
+
+class SessionClock(TrainerCallback):
+    """Время обучения по всем сессиям Colab: при каждой контрольной точке пишет в time.json {шаг: секунды с начала
+    обучения}. Продолжение с точки берёт время, записанное для её шага, - время оборванной части после точки не
+    считается, как и сами шаги, которые придётся повторить."""
+
+    def __init__(self, path, resume_step):
+        self.path = path
+        self.marks = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        self.before = self.marks.get(str(resume_step), 0.0) if resume_step else 0.0
+        self.resume_step = resume_step or 0
+        self.start = time.time()
+
+    def total(self):
+        return self.before + time.time() - self.start
+
+    def on_save(self, args, state, control, **kw):
+        self.marks[str(state.global_step)] = self.total()
+        self.path.write_text(json.dumps(self.marks, indent=1), encoding="utf-8")
 
 
 def dataset(path, tok, max_len):
@@ -100,28 +120,34 @@ def main():
     args = TrainingArguments(
         output_dir=str(out / "checkpoints"), num_train_epochs=a.epochs, max_steps=a.max_steps, per_device_train_batch_size=a.batch,
         per_device_eval_batch_size=a.batch, gradient_accumulation_steps=a.accum, learning_rate=a.lr, lr_scheduler_type="cosine",
-        warmup_steps=max(1, int(0.05 * steps)), bf16=bf16, fp16=not bf16, logging_steps=max(1, int(steps) // 40), eval_strategy="epoch", save_strategy="steps", save_steps=100,
+        warmup_steps=max(1, int(0.05 * steps)), bf16=bf16, fp16=not bf16, logging_steps=max(1, int(steps) // 40), eval_strategy="epoch", save_strategy="steps", save_steps=50,
         save_total_limit=2, report_to=[], seed=a.seed, remove_unused_columns=False,
         prediction_loss_only=True,  # на dev нужны только потери: логиты всей выборки в память не поместятся
         gradient_checkpointing=True, gradient_checkpointing_kwargs={"use_reentrant": False})
-    trainer = Trainer(model=model, args=args, train_dataset=train, eval_dataset=dev, data_collator=collate(tok.pad_token_id))
     last = get_last_checkpoint(str(out / "checkpoints")) if (out / "checkpoints").exists() else None
+    clock = SessionClock(out / "time.json", int(last.rsplit("-", 1)[1]) if last else 0)
+    trainer = Trainer(model=model, args=args, train_dataset=train, eval_dataset=dev, data_collator=collate(tok.pad_token_id),
+                      callbacks=[clock])
     if last:
-        print("продолжаю с", last, flush=True)
+        print(f"продолжаю с {last}; до неё обучение шло {clock.before / 60:.0f} мин", flush=True)
     start = time.time()
     result = trainer.train(resume_from_checkpoint=last)
     model.save_pretrained(out / "adapter")
     tok.save_pretrained(out / "adapter")
     import peft
     import transformers
-    meta = {"args": vars(a), "train_seconds": time.time() - start, "train_loss": result.training_loss,
+    # train_seconds - все сессии (до точки продолжения - из time.json); session_seconds и session_steps - последняя.
+    # В run.json 4B (04.11.2026) train_seconds - только последняя сессия, с шага около 325: тогда учёта сессий не было.
+    meta = {"args": vars(a), "train_seconds": clock.total(), "session_seconds": time.time() - start,
+            "session_steps": trainer.state.global_step - clock.resume_step, "train_loss": result.training_loss,
             "gpu": torch.cuda.get_device_name(0), "gpu_peak_gb": torch.cuda.max_memory_allocated() / 2 ** 30,
             "dropped_long": [cut_train, cut_dev], "log": trainer.state.log_history,
             "versions": {"torch": torch.__version__, "transformers": transformers.__version__, "peft": peft.__version__}}
     (out / "run.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
-    print(f"готово: {meta['train_seconds'] / 60:.1f} мин, пик GPU {meta['gpu_peak_gb']:.1f} ГБ", flush=True)
+    print(f"готово: {meta['train_seconds'] / 60:.1f} мин (эта сессия - {meta['session_steps']} шагов за "
+          f"{meta['session_seconds'] / 60:.1f} мин), пик GPU {meta['gpu_peak_gb']:.1f} ГБ", flush=True)
     if a.max_steps > 0:  # первые шаги медленнее остальных, оценка с запасом
-        sec = meta["train_seconds"] / a.max_steps
+        sec = meta["session_seconds"] / a.max_steps
         print(f"проба: {sec:.1f} с на шаг; полное обучение - {int(steps)} шагов, около {sec * steps / 3600:.1f} ч", flush=True)
 
 
