@@ -45,6 +45,27 @@ class SessionClock(TrainerCallback):
         self.path.write_text(json.dumps(self.marks, indent=1), encoding="utf-8")
 
 
+def shrink_frozen(model, dtype):
+    """prepare_model_for_kbit_training переводит в float32 всё, что не квантовано, в том числе встраивания и выходной
+    слой (bitsandbytes их не квантует). При словаре 248 тыс. это 4 ГБ на слой у Qwen3.5-9B (слои не связаны: 8 ГБ),
+    2,5 ГБ у 4B и 14 ГБ у встраиваний по слоям Gemma 4 E4B. Слои заморожены, поэтому хранятся снова в dtype (fp16 на T4).
+    Счёт почти не меняется: выходной слой и так умножался в fp16 (autocast), а выход встраиваний переводится обратно
+    в float32, как было. Возвращает освобождённые ГБ."""
+    freed = 0
+    head = model.get_output_embeddings()
+    for mod in model.modules():
+        if not (isinstance(mod, torch.nn.Embedding) or mod is head):
+            continue
+        w = mod.weight
+        if w.dtype != torch.float32 or w.requires_grad:  # связанный с встраиваниями выходной слой уже переведён
+            continue
+        w.data = w.data.to(dtype)
+        freed += w.numel() * 2
+        if isinstance(mod, torch.nn.Embedding):
+            mod.register_forward_hook(lambda m, inp, out: out.float() if out.is_floating_point() else out)
+    return freed / 2 ** 30
+
+
 def dataset(path, tok, max_len):
     end = training.end_of_turn(tok)
     rows = [training.encode(tok, r["messages"], max_len, end) for r in training.read_jsonl(path)]
@@ -107,6 +128,7 @@ def main():
                                                bnb_4bit_compute_dtype=dtype))
     model.config.use_cache = False  # кэш при обучении не нужен и мешает контрольным точкам градиента
     model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
+    print(f"замороженные встраивания обратно в {dtype}: -{shrink_frozen(model, dtype):.1f} ГБ", flush=True)
     model = get_peft_model(model, LoraConfig(r=a.lora_r, lora_alpha=2 * a.lora_r, lora_dropout=0.05, bias="none",
                                              task_type="CAUSAL_LM", target_modules=lora_targets(model)))
     model.print_trainable_parameters()
