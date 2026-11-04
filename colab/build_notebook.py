@@ -22,10 +22,13 @@ RUNS = {
                         "можно пропустить; ячейка 8 дописывает ответы dev до полных 150 - для итоговой таблицы."},
     "q35_4b": {"model": "Qwen/Qwen3.5-4B", "subset": 2000, "limit": 0, "epochs": 2,
                "about": "Фаза 3, отбор моделей: Qwen3.5-4B. Условия у всех кандидатов одни: v2, 2000 записей, 2 эпохи, seed 1."},
-    "q35_9b": {"model": "Qwen/Qwen3.5-9B", "subset": 2000, "limit": 0, "epochs": 2,
-               "about": "Фаза 3, отбор моделей: Qwen3.5-9B, старшая модель того же семейства. Условия те же, что у 4B. "
-                        "Обучение примерно вдвое дольше, чем у 4B (точнее покажет ячейка 4): вероятно, в две сессии - "
-                        "ячейка 6 продолжает с контрольной точки на Drive."},
+    "q35_9b": {"model": "Qwen/Qwen3.5-9B", "subset": 2000, "limit": 0, "epochs": 2, "batch": 1,
+               "about": "Фаза 3, отбор моделей: Qwen3.5-9B, старшая модель того же семейства. Условия те же, что у 4B; "
+                        "батч 1 с накоплением 8 вместо 2 x 4 - шаг оптимизации тот же, а памяти на логиты и активации "
+                        "вдвое меньше (у 4B пик был 10,7 ГБ из 15). Сначала ячейка 4: 10 шагов, память и время. 4B "
+                        "училась около 16 с на шаг (2,2 ч); 9B ожидается примерно вдвое дольше, то есть в две сессии - "
+                        "ячейка 6 продолжает с контрольной точки на Drive (они каждые 50 шагов), время всех сессий "
+                        "складывается в run.json."},
     "gemma4_e4b": {"model": "google/gemma-4-E4B-it", "subset": 2000, "limit": 0, "epochs": 2,
                    "about": "Фаза 3, отбор моделей: Gemma 4 E4B (Apache 2.0), другое семейство. Модель грузится целиком, "
                             "с башнями зрения и звука; LoRA - только на языковую часть. Из 7,9 млрд параметров 3,5 млрд - "
@@ -44,6 +47,8 @@ def settings(run, r):
         f"LIMIT = {r['limit']}".ljust(23) + "# сколько записей взять из подмножества; 0 - все",
         "FORMAT = 'netlist'".ljust(23) + "# netlist или ir",
         f"EPOCHS = {r['epochs']}",
+        f"BATCH = {r.get('batch', 2)}".ljust(23) + "# записей за проход; шаг оптимизации всегда 8 записей",
+        "ACCUM = 8 // BATCH",
         "SEED = 1",
         "OUT = f'/content/drive/MyDrive/mcnl/{RUN}'",
         "!mkdir -p {OUT}",
@@ -112,7 +117,7 @@ print('УЧИТСЯ:', repr(tok.decode([t for t, l in zip(e['input_ids'], e['lab
 lens = sorted(len(training.encode(tok, r['messages'], 10 ** 6, end)['input_ids']) for r in recs)
 print(f'токенов в примере: медиана {lens[len(lens) // 2]}, максимум {lens[-1]}')
 !rm -rf /content/probe
-!python colab/train_lora.py --model {MODEL} --data out/training/{RUN} --out /content/probe --epochs {EPOCHS} --seed {SEED} --max-steps 10
+!python colab/train_lora.py --model {MODEL} --data out/training/{RUN} --out /content/probe --epochs {EPOCHS} --seed {SEED} --batch {BATCH} --accum {ACCUM} --max-steps 10
 """),
     md("""
 ## 5. Модель без обучения
@@ -126,7 +131,7 @@ print(f'токенов в примере: медиана {lens[len(lens) // 2]},
 Здесь видны полоса прогресса, потери `loss` по шагам и `eval_loss` по эпохам. `loss` должен падать. Если он стоит на месте или становится `nan`, обучение идёт неправильно.
 """),
     code("""
-!python colab/train_lora.py --model {MODEL} --data out/training/{RUN} --out {OUT} --epochs {EPOCHS} --seed {SEED}
+!python colab/train_lora.py --model {MODEL} --data out/training/{RUN} --out {OUT} --epochs {EPOCHS} --seed {SEED} --batch {BATCH} --accum {ACCUM}
 """),
     md("## 7. График обучения\nСохраняется на Drive как `loss.png`: годится для текста работы."),
     code("""
@@ -140,7 +145,7 @@ if ev:
     plt.plot(*zip(*ev), 'o-', label='dev')
 plt.xlabel('шаг обучения'); plt.ylabel('потери'); plt.legend(); plt.grid(alpha=0.3)
 plt.title(RUN); plt.savefig(f'{OUT}/loss.png', dpi=200, bbox_inches='tight'); plt.show()
-print(f"Время обучения: {run['train_seconds'] / 60:.1f} мин, пик памяти GPU: {run['gpu_peak_gb']:.1f} ГБ, GPU: {run['gpu']}")
+print(f"Время обучения: {run['train_seconds'] / 60:.1f} мин (все сессии), пик памяти GPU: {run['gpu_peak_gb']:.1f} ГБ, GPU: {run['gpu']}")
 print('Отброшено длинных примеров (train, dev):', run['dropped_long'])
 print('Версии:', run['versions'])
 """),
