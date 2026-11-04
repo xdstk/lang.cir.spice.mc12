@@ -63,7 +63,8 @@
   `edge_cases.py` - странные схемы и отказы;
   `generate_v2.py` - сборка gen-2; `paraphrase.py` - парафразы train; датасет - data/dataset/v2 (заморожен);
   главная метрика - data/dataset/llm_test_v1 (заморожена).
-- Обучение (этап 2, docs/stage2_plan.md): `training.py` - инструкция, экспорт, метки; `hf_runtime.py` - загрузка и генерация; `colab/` - обучение и ответы,
+- Обучение (этап 2, docs/stage2_plan.md): `training.py` - инструкция, экспорт, метки; `hf_runtime.py` - загрузка и генерация; `colab/` - обучение и ответы;
+  справочная строка - `translators/glm_api.py` (GLM через API Z.ai, ключ ZAI_API_KEY);
   оценка локально: `evaluate.py --predictions`.
 - Режим дизайнера: `designer.py` - Active.flt, окно MC12 сообщениями Windows, макрос в схему; `designer_data.py` - данные и оценка;
   `mc12_real.py` - реальные схемы из примеров MC12.
