@@ -139,6 +139,20 @@ class Build(Base):
         recs = [json.loads(l) for l in (WORK / "v1" / "llm_test.jsonl").read_text(encoding="utf-8").splitlines()]
         self.assertEqual([r.get("refuse") for r in recs], [None, "out_of_class", "needs_design"])
 
+    def test_second_llm_author_goes_to_llm_test2(self):
+        """D02 (Kimi) - отдельная выборка llm_test2; llm_test (D01) она не трогает."""
+        self.assertEqual((human_test.llm_split("D01"), human_test.llm_split("D02")), ("llm_test", "llm_test2"))
+        human_test.import_file(self.write_csv("d02.csv", ["можно RC ФНЧ R 1к C 100н?", "усилитель на КТ315"]), "D02")
+        raw = human_test.read_raw()
+        text = (human_test.LABELS_HEAD
+                + human_test._section(raw[0], "A", "V1 IN 0 DC 0\nR1 IN OUT 1k\nC1 OUT 0 100n\n", clean="RC ФНЧ R 1к C 100н")
+                + human_test._section(raw[1], "out", ""))
+        human_test.LABELS.write_text(text, encoding="utf-8")
+        m = human_test.build(WORK / "v1", WORK / "runs")
+        self.assertEqual(m["files"]["llm_test.jsonl"]["records"], 0)
+        self.assertEqual(m["files"]["llm_test2.jsonl"]["records"], 2)
+        self.assertEqual(m["files"]["llm_test2_chatty.jsonl"]["records"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
