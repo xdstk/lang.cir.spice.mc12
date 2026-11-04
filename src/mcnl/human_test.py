@@ -41,7 +41,9 @@ DEV_AUTHORS = {"A01"}  # автор работы знает шаблоны ге�
 # отдельная выборка paraphrase (для v2 и отладки), в human_test не попадает.
 # D01 - запросы внешней языковой модели, отобранные автором: выборка llm_test, главная метрика (docs/generator_v2_spec.md);
 # у неё out, unclear и B - не пропуск, а эталон-отказ; llm_test_chatty - те же схемы с исходной разговорной формой запроса
-SPLITS = ("human_dev", "human_test", "paraphrase", "llm_test", "llm_test_chatty")
+# D02 - вторая выборка (Kimi, 04.11.2026, docs/llm_test_prompt.txt): llm_test2 и llm_test2_chatty, для v3 и проверки
+# переноса на другую модель-автора; llm_test (D01) она не меняет
+SPLITS = ("human_dev", "human_test", "paraphrase", "llm_test", "llm_test_chatty", "llm_test2", "llm_test2_chatty")
 AUTHOR_RE = r"[ACD]\d{2}"
 REFUSE_BY_CLASS = {"out": "out_of_class", "unclear": "ambiguous", "B": "needs_design"}
 QUANTITIES = {"LP": ["type", "k_pass_db", "fc"], "HP": ["type", "k_pass_db", "fc"],
@@ -54,6 +56,11 @@ LABELS_HEAD = ("# Разметка человеческого теста\n\n"
 
 
 # ---------------------------------------------------------------- сбор
+def llm_split(author):
+    """D01 -> llm_test, D02 -> llm_test2, …"""
+    return "llm_test" if author == "D01" else f"llm_test{int(author[1:])}"
+
+
 def read_raw():
     return [json.loads(l) for l in RAW.read_text(encoding="utf-8").splitlines()] if RAW.exists() else []
 
@@ -157,7 +164,7 @@ def reference(hid, lab):
     q = QUANTITIES[m["type"]]
     n_op = sum(e["type"] == "OPAMP" for e in elems)
     return {"id": hid, "circuit_id": hashlib.sha256(netlist.encode()).hexdigest()[:16], "author": lab["author"],
-            "split": ("paraphrase" if lab["author"].startswith("C") else "llm_test" if lab["author"].startswith("D") else
+            "split": ("paraphrase" if lab["author"].startswith("C") else llm_split(lab["author"]) if lab["author"].startswith("D") else
                       "human_dev" if lab["author"] in DEV_AUTHORS else "human_test"), "task": lab["class"],
             "family": "human", "topology": f"human:{m['type']}", "level": "L1" if n_op == 0 else "L2" if n_op == 1 else "L3",
             "prompt": lab.get("clean") or lab["prompt"], "prompt_orig": lab["prompt"], "netlist": netlist, "ir": canon.to_ir(elems), "f_char": f_char,
@@ -170,7 +177,7 @@ def build(outdir=None, workdir=None):
     refusals = []
     for hid, lab in labels.items():
         if lab["author"].startswith("D") and lab["class"] in REFUSE_BY_CLASS:
-            refusals.append({"id": hid, "author": lab["author"], "split": "llm_test", "task": lab["class"], "family": "human",
+            refusals.append({"id": hid, "author": lab["author"], "split": llm_split(lab["author"]), "task": lab["class"], "family": "human",
                              "topology": "refuse", "level": None, "prompt": lab["prompt"], "refuse": REFUSE_BY_CLASS[lab["class"]],
                              "note": lab["note"]})
             continue
@@ -183,7 +190,7 @@ def build(outdir=None, workdir=None):
             report["errors"].append(str(err))
     admitted = pilot.admit(refs, Path(workdir or ROOT / "out" / "human_runs")) if refs else []
     for r in admitted:  # llm_test: Q > 10, усиление у предела ОУ, fc выше 100 МГц - вне допуска к формуле, но схема считается
-        if r["split"] == "llm_test" and r["admission"]["mc12_run"] and not r["admission"]["admitted"]:
+        if r["split"].startswith("llm_test") and r["admission"]["mc12_run"] and not r["admission"]["admitted"]:
             r["admission"].update(admitted=True, relaxed=True)  # S4c сравнивает кривые MC12 и формулы не требует
     report["rejected"] = [{"id": r["id"], "admission": r["admission"]} for r in admitted if not r["admission"]["admitted"]]
     frozen = () if outdir else ("llm_test", "llm_test_chatty") if FROZEN_LLM.exists() else ()
@@ -191,8 +198,8 @@ def build(outdir=None, workdir=None):
     outdir.mkdir(parents=True, exist_ok=True)
     manifest = {"files": {}, "report": report}
     good = [r for r in admitted if r["admission"]["admitted"]] + refusals
-    good += [dict(r, id=r["id"] + "c", split="llm_test_chatty", prompt=r["prompt_orig"]) for r in good
-             if r["split"] == "llm_test" and r.get("prompt_orig") and r["prompt_orig"] != r["prompt"]]
+    good += [dict(r, id=r["id"] + "c", split=r["split"] + "_chatty", prompt=r["prompt_orig"]) for r in good
+             if r["split"].startswith("llm_test") and r.get("prompt_orig") and r["prompt_orig"] != r["prompt"]]
     for split in (x for x in SPLITS if x not in frozen):
         recs = sorted((r for r in good if r["split"] == split), key=lambda r: r["id"])
         data = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in recs).encode("utf-8")
