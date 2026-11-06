@@ -160,6 +160,16 @@ A = f'--model {MODEL} --adapter {OUT}/adapter --format {FORMAT} --name {RUN}'
 !python colab/predict.py {A} --records data/human_test/v1/paraphrase.jsonl --out {OUT}/paraphrase.jsonl
 """),
     md("""
+### 8б. Остальные выборки (для итоговой таблицы)
+test v2 (500), `gen_*` (300), `mc12_real` (13): около 800 запросов. Нужны для моделей, которые не помещаются на ноутбук автора (9B); остальные можно считать локально. Каждый файл продолжается с места обрыва: если сессия кончится, запустить ячейки 1-3 и эту снова.
+"""),
+    code("""
+A = f'--model {MODEL} --adapter {OUT}/adapter --format {FORMAT} --name {RUN}'
+!python colab/predict.py {A} --records data/dataset/mc12_real_v1/mc12_real.jsonl --out {OUT}/mc12_real.jsonl
+for s in ['gen_topology', 'gen_family', 'gen_range', 'test']:
+    !python colab/predict.py {A} --records data/dataset/v2/{s}.jsonl --out {OUT}/{s}.jsonl
+"""),
+    md("""
 ## 9. Что получилось
 Здесь быстрая прикидка: точное совпадение строк ответа с эталоном, без учёта порядка. Настоящая оценка с MC12 идёт отдельно, на ноутбуке с Micro-Cap: она считает схему верной и при других именах узлов, поэтому её цифры выше.
 """),
