@@ -87,6 +87,10 @@ def run(prompt=None, translator=None, netlist=None, outdir=None, name="circuit",
         rep["run"] = {"ok": res["ok"], "messages": res["messages"], "output": res["output"]}
         if res["ok"]:
             rep["measured"] = measure.from_output(res["output"])
+            if prompt:
+                note = name_mismatch(prompt, rep["measured"]["type"])
+                if note:
+                    rep["notes"].append(note)
         else:
             rep["messages"].append("MC12 не выполнил схему (S1)")
     cir = outdir / f"{name}.cir"
@@ -100,6 +104,38 @@ def run(prompt=None, translator=None, netlist=None, outdir=None, name="circuit",
         subprocess.Popen([exe, rep["cir"]], cwd=str(Path(exe).parent))
         rep["messages"].append(f"схема открыта в MC12: {rep['cir']}")
     return rep
+
+
+# Тип фильтра, названный в запросе (решение автора 06.11.2026, В5 в generator_v3_spec): схема строится по соединениям
+# и номиналам, а программа предупреждает, если измеренный тип с названием расходится. Слова - по описаниям схем в
+# roles_ru.json и запросах C01/llm_test; «интегратор», «усилитель», «контур» тип не задают и не учитываются.
+NAMED_TYPES = {
+    "LP": (r"\bфнч\b", r"нижних\s+частот", r"низких\s+частот", r"\bнч[- ]?фильтр", r"low[- ]?pass", r"\blpf\b"),
+    "HP": (r"\bфвч\b", r"верхних\s+частот", r"высоких\s+частот", r"\bвч[- ]?фильтр", r"high[- ]?pass", r"\bhpf\b"),
+    "BP": (r"полосов", r"полосно[- ]?пропуск", r"\bппф\b", r"band[- ]?pass", r"\bbpf\b"),
+    "BS": (r"режектор", r"заграждающ", r"\bпзф\b", r"\bnotch\b", r"band[- ]?stop", r"двойн\w*\s+т\b"),
+}
+TYPE_WORD = {"LP": "ФНЧ", "HP": "ФВЧ", "BP": "полосовой фильтр", "BS": "режекторный фильтр"}
+
+
+def named_type(prompt):
+    """Тип фильтра, названный в запросе: LP / HP / BP / BS; None - не назван или названо несколько разных
+    (каскад «ФВЧ -> ФНЧ» полосовой по смыслу, но не по названию)."""
+    import re
+    text = prompt.lower().replace("ё", "е")
+    found = {t for t, pats in NAMED_TYPES.items() if any(re.search(p, text) for p in pats)}
+    return found.pop() if len(found) == 1 else None
+
+
+def name_mismatch(prompt, measured_type):
+    """Замечание, если по запросу назван один тип фильтра, а MC12 насчитал другой; иначе None."""
+    named = named_type(prompt)
+    if named is None or measured_type == named:
+        return None
+    got = TYPE_WORD.get(measured_type, "схема без частотной зависимости")
+    # добавки к схеме могут честно менять её тип (на эталонах v2 - 25 случаев из 903), поэтому не «ошибка», а проверка
+    return (f"в запросе назван {TYPE_WORD[named]}, а по расчёту MC12 получился {got}: схема построена "
+            "по описанным соединениям - проверьте их и добавленные элементы, если они есть")
 
 
 def run_designer(prompt, translator, outdir=None, name="filter", open_mc12=False):
