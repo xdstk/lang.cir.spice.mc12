@@ -108,6 +108,24 @@ class App(unittest.TestCase):
         self.assertNotIn("netlist", rep)
         self.assertIn(app.INPUT_HINT, rep["messages"])
 
+    def test_named_type(self):
+        self.assertEqual(app.named_type("RC ФНЧ: R 1к, C 100н"), "LP")
+        self.assertEqual(app.named_type("Фильтр высоких частот Саллена-Ки"), "HP")
+        self.assertEqual(app.named_type("полосовой MFB: R1 11к"), "BP")
+        self.assertEqual(app.named_type("Двойной Т-мост на 50 Гц"), "BS")
+        self.assertEqual(app.named_type("полосно-заграждающий фильтр"), "BS")
+        self.assertEqual(app.named_type("notch filter, R 10k"), "BS")
+        self.assertIsNone(app.named_type("инвертирующий усилитель: Rвх 10к, Rос 100к"))
+        self.assertIsNone(app.named_type("каскад: [Саллен-Ки ФВЧ] → [активный ФНЧ]"))  # два разных типа
+
+    def test_name_mismatch(self):
+        self.assertIsNone(app.name_mismatch("RC ФНЧ: R 1к, C 100н", "LP"))
+        self.assertIsNone(app.name_mismatch("R1 1к вх-вых; C1 100н вых-0", "LP"))  # тип не назван
+        note = app.name_mismatch("RL ФВЧ: L от входа к выходу, R на землю", "LP")
+        self.assertEqual(note, "в запросе назван ФВЧ, а по расчёту MC12 получился ФНЧ: схема построена "
+                               "по описанным соединениям - проверьте их и добавленные элементы, если они есть")
+        self.assertIn("без частотной зависимости", app.name_mismatch("ФНЧ из двух резисторов", "flat"))
+
     def test_flat_circuit_has_no_fchar(self):
         rep = app.run(netlist="V1 IN 0 DC 5\nR1 IN OUT 10k\nR2 OUT 0 10k\n", outdir=ROOT / "out" / "test_app",
                       name="div", mc12=False)
@@ -129,6 +147,21 @@ class WithMC12(unittest.TestCase):
         self.assertTrue(rep["run"]["ok"], rep)
         self.assertEqual(rep["measured"]["type"], "LP")
         self.assertAlmostEqual(rep["measured"]["fc"] / (1 / (2 * math.pi * 1e-4)), 1, delta=3e-3)
+
+    def test_name_mismatch_note(self):
+        """Название «ФВЧ», а соединения дают ФНЧ (как у запросов Kimi): схема строится по соединениям, замечание есть."""
+        class Fixed:
+            output_format = "netlist"
+
+            def translate(self, prompt):
+                return "V1 IN 0 DC 0\nL1 IN OUT 10m\nR1 OUT 0 1k\n"
+        rep = app.run("RL ФВЧ: катушка 10 мГн от входа к выходу, резистор 1 кОм с выхода на землю", Fixed(),
+                      outdir=ROOT / "out" / "test_app", name="rl_name")
+        self.assertEqual(rep["measured"]["type"], "LP")
+        self.assertTrue(any("в запросе назван ФВЧ" in n for n in rep["notes"]), rep["notes"])
+        rep = app.run("RL ФНЧ: катушка 10 мГн от входа к выходу, резистор 1 кОм с выхода на землю", Fixed(),
+                      outdir=ROOT / "out" / "test_app", name="rl_ok")
+        self.assertFalse(any("в запросе назван" in n for n in rep["notes"]), rep["notes"])
 
     def test_evaluate_subset(self):
         out = ROOT / "out" / "test_app" / "eval"
