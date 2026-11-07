@@ -70,7 +70,7 @@
   `mc12_real.py` - реальные схемы из примеров MC12.
 - Генератор: `sampler.py` - номиналы; `cascade.py` - каскады L3; `describe_ru.py` - русские
   запросы и их обратный разбор (словарь ролей - data/roles_ru.json); `generate.py` - сборка.
-- Программа: `app.py` - конвейер «запрос → .CIR → MC12»; `gui.py` - окно tkinter (docs/gui_spec.md); `translators/` - сменные переводчики
+- Программа: `app.py` - конвейер «запрос → .CIR → MC12»; `gui.py` - окно tkinter (docs/gui_spec.md, запуск `run_gui.bat`); `translators/` - сменные переводчики
   (интерфейс: output_format + translate(prompt); подключение load("файл.py:Класс")); `evaluate.py` -
   оценка переводчика на выборке. Подробно - docs/program.md.
 - `spice2cir.py` - нетлист → .CIR (шаблоны элементов - data/cir_templates.cir; блок `[Text Area]`

@@ -31,6 +31,26 @@ DEFAULTS = {"base": "Qwen/Qwen3.5-4B", "adapter": str(ROOT / "out" / "q35_4b" / 
 QWEN, BASELINE = "Qwen3.5-4B (локально)", "baseline (проверка окна)"
 KIND = {"LP": "ФНЧ", "HP": "ФВЧ", "BP": "полосовой", "BS": "режекторный", "flat": "без частотной зависимости"}
 EXAMPLE = "ФНЧ Саллена-Ки на повторителе: R1 10 кОм, R2 10 кОм, C1 (ОС) 22 нФ, C2 (земля) 10 нФ; сигнал на вход"
+# Меню «Примеры» (шаг 5): разные классы схем; все проверены на Qwen3.5-4B и MC12 07.11.2026 (тип, fc / f0, Q, K
+# совпали с формулами), отказы - с верным кодом.
+EXAMPLES = [
+    ("Делитель напряжения", "Делитель напряжения: верхний резистор 10 кОм, нижний 4,7 кОм; на вход 5 В"),
+    ("RC ФВЧ по соединениям", "RC ФВЧ: конденсатор 100 нФ от входа к выходу, резистор 10 кОм с выхода на землю; "
+                              "сигнал на вход"),
+    ("Двухзвенная RC-цепочка", "R1 10 кОм от входа к точке 1, C1 100 нФ от точки 1 на землю, R2 22 кОм от точки 1 "
+                               "к выходу, C2 10 нФ с выхода на землю; сигнал на вход"),
+    ("Последовательный RLC-контур", "Последовательный RLC-контур, выход на резисторе: катушка 10 мГн, конденсатор "
+                                    "100 нФ, резистор 100 Ом; сигнал на вход"),
+    ("Инвертирующий усилитель", "Инвертирующий усилитель на ОУ: входной резистор 4,7 кОм, резистор обратной связи "
+                                "47 кОм; сигнал на вход"),
+    ("Неинвертирующий усилитель", "Неинвертирующий усилитель на ОУ: резистор на землю 10 кОм, резистор обратной "
+                                  "связи 22 кОм; сигнал на вход"),
+    ("ФНЧ Саллена-Ки", EXAMPLE),
+    ("RC ФНЧ с добавкой на выходе", "RC ФНЧ: резистор 1 кОм, конденсатор 100 нФ; после выхода ещё 470 Ом "
+                                    "последовательно, выход за ним"),
+    ("Отказ: транзистор", "Усилитель на транзисторе КТ315 с коэффициентом усиления 20"),
+    ("Отказ: номиналы не заданы", "Собери ФНЧ на 1 кГц"),
+]
 # Вкладка «Правила» (docs/gui_spec.md, шаг 3): ("h", заголовок) | ("p", пункт) | ("ex", пример с кнопкой «В запрос»).
 # Примеры проверены на Qwen3.5-4B и MC12 07.11.2026: схемы построены верно, отказы - с верным кодом.
 RULES = [
@@ -142,6 +162,40 @@ def notes_of(rep):
     return out
 
 
+HISTORY_SIZE = 20
+
+
+def history_result(rep):
+    """Короткая подпись результата для меню истории: «ФНЧ 1,59 кГц», «отказ», «не разобран»."""
+    if rep.get("refused"):
+        return "отказ"
+    if "netlist" not in rep:
+        return "не разобран"
+    m = rep.get("measured")
+    if not m:
+        return "без расчёта"
+    kind, freq = cards(m)[0][1], cards(m)[1][1]
+    return kind if freq == "-" else f"{kind} {freq}"
+
+
+def read_history(path=None):
+    """Последние запросы, новые первыми (файл out/gui/history.jsonl)."""
+    p = Path(path or OUT / "history.jsonl")
+    if not p.exists():
+        return []
+    items = [json.loads(line) for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return items[::-1]
+
+
+def add_history(prompt, result, path=None):
+    """Запрос в историю: повтор поднимается наверх, хранится HISTORY_SIZE последних."""
+    p = Path(path or OUT / "history.jsonl")
+    items = [h for h in read_history(p)[::-1] if h["prompt"] != prompt]
+    items.append({"prompt": prompt, "result": result, "time": time.strftime("%Y-%m-%d %H:%M")})
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("".join(json.dumps(h, ensure_ascii=False) + "\n" for h in items[-HISTORY_SIZE:]), encoding="utf-8")
+
+
 def load_settings():
     p = OUT / "settings.json"
     s = dict(DEFAULTS)
@@ -188,7 +242,19 @@ class Window:
 
         left = ttk.Frame(main)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
-        ttk.Label(left, text="Запрос").pack(anchor="w")
+        head = ttk.Frame(left)
+        head.pack(fill="x")
+        ttk.Label(head, text="Запрос").pack(side="left")
+        hist = ttk.Menubutton(head, text="История")
+        hist.pack(side="right")
+        self.hist_menu = tk.Menu(hist, tearoff=False, postcommand=self._fill_history)
+        hist["menu"] = self.hist_menu
+        ex = ttk.Menubutton(head, text="Примеры")
+        ex.pack(side="right", padx=6)
+        ex_menu = tk.Menu(ex, tearoff=False)
+        for title, prompt in EXAMPLES:
+            ex_menu.add_command(label=title, command=lambda s=prompt: self.use_example(s))
+        ex["menu"] = ex_menu
         self.prompt = tk.Text(left, height=8, wrap="word", font=("Segoe UI", 10), undo=True)
         self.prompt.pack(fill="x", pady=(2, 8))
         self.prompt.insert("1.0", EXAMPLE)
@@ -258,6 +324,16 @@ class Window:
                 text.window_create("end", window=b)
                 text.insert("end", "\n")
         text.configure(state="disabled")
+
+    def _fill_history(self):
+        self.hist_menu.delete(0, "end")
+        items = read_history()
+        if not items:
+            self.hist_menu.add_command(label="Пока пусто", state="disabled")
+        for h in items:
+            label = h["prompt"] if len(h["prompt"]) <= 70 else h["prompt"][:67] + "…"
+            self.hist_menu.add_command(label=f"{label}   [{h.get('result', '-')}]",
+                                       command=lambda s=h["prompt"]: self.use_example(s))
 
     def use_example(self, prompt):
         self.prompt.delete("1.0", "end")
@@ -386,6 +462,11 @@ class Window:
 
     def _show(self, rep):
         self.rep = rep
+        if rep.get("prompt"):
+            try:
+                add_history(rep["prompt"], history_result(rep))
+            except OSError:  # история - удобство: не записалась - окно работает дальше
+                pass
         self.netlist.delete("1.0", "end")
         self.netlist.insert("1.0", (rep.get("netlist") or rep.get("output") or "").strip())
         self._show_cards(rep.get("measured"))

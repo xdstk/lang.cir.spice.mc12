@@ -52,6 +52,32 @@ class Data(unittest.TestCase):
         self.assertEqual(kinds[0], "h")
         self.assertGreaterEqual(kinds.count("ex"), 3)  # примеры для кнопки «В запрос»
 
+    def test_history(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "history.jsonl"
+            self.assertEqual(gui.read_history(path), [])
+            for i in range(25):
+                gui.add_history(f"запрос {i}", "ФНЧ", path)
+            gui.add_history("запрос 10", "ФВЧ", path)  # повтор поднимается наверх, не дублируется
+            items = gui.read_history(path)
+            self.assertEqual(len(items), gui.HISTORY_SIZE)
+            self.assertEqual((items[0]["prompt"], items[0]["result"]), ("запрос 10", "ФВЧ"))
+            self.assertEqual(sum(h["prompt"] == "запрос 10" for h in items), 1)
+            self.assertEqual(items[1]["prompt"], "запрос 24")
+
+    def test_history_result(self):
+        self.assertEqual(gui.history_result({"refused": {"code": "out_of_class"}}), "отказ")
+        self.assertEqual(gui.history_result({"messages": []}), "не разобран")
+        lp = {"netlist": "x", "measured": {"type": "LP", "fc": 1591.5, "k_pass_db": 0.0, "Q": None}}
+        self.assertEqual(gui.history_result(lp), "ФНЧ 1,59 кГц")
+        flat = {"netlist": "x", "measured": {"type": "flat", "fc": None, "f0": None, "k_pass_db": 20.0, "Q": None}}
+        self.assertEqual(gui.history_result(flat), "без частотной зависимости")
+
+    def test_examples(self):
+        self.assertGreaterEqual(len(gui.EXAMPLES), 8)
+        self.assertEqual(len({t for t, _ in gui.EXAMPLES}), len(gui.EXAMPLES))
+
 
 if __name__ == "__main__":
     unittest.main()
