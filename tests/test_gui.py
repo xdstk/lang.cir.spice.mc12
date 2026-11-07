@@ -46,6 +46,12 @@ class Data(unittest.TestCase):
         self.assertEqual(gui.notes_of(rep), ["Модель отказала: транзистор", "Ошибка разбора: строка 2",
                                              "MC12 не выполнил схему (S1)", "Замечание: R2: второй вывод никуда не подключён"])
 
+    def test_rules(self):
+        kinds = [k for k, _ in gui.RULES]
+        self.assertTrue(set(kinds) <= {"h", "p", "ex"})
+        self.assertEqual(kinds[0], "h")
+        self.assertGreaterEqual(kinds.count("ex"), 3)  # примеры для кнопки «В запрос»
+
 
 if __name__ == "__main__":
     unittest.main()

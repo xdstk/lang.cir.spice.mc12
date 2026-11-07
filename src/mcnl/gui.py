@@ -31,6 +31,37 @@ DEFAULTS = {"base": "Qwen/Qwen3.5-4B", "adapter": str(ROOT / "out" / "q35_4b" / 
 QWEN, BASELINE = "Qwen3.5-4B (локально)", "baseline (проверка окна)"
 KIND = {"LP": "ФНЧ", "HP": "ФВЧ", "BP": "полосовой", "BS": "режекторный", "flat": "без частотной зависимости"}
 EXAMPLE = "ФНЧ Саллена-Ки на повторителе: R1 10 кОм, R2 10 кОм, C1 (ОС) 22 нФ, C2 (земля) 10 нФ; сигнал на вход"
+# Вкладка «Правила» (docs/gui_spec.md, шаг 3): ("h", заголовок) | ("p", пункт) | ("ex", пример с кнопкой «В запрос»).
+# Примеры проверены на Qwen3.5-4B и MC12 07.11.2026: схемы построены верно, отказы - с верным кодом.
+RULES = [
+    ("h", "Что умеет программа"),
+    ("p", "Пассивные схемы из резисторов, конденсаторов и катушек: делители, RC, RL и RLC-фильтры, цепочки звеньев."),
+    ("p", "Схемы на идеальных операционных усилителях: усилители, активные фильтры, каскады из 2-3 звеньев."),
+    ("p", "Один источник сигнала между входом и землёй. Программа считает АЧХ в Micro-Cap 12 и строит чертёж схемы."),
+    ("h", "Как писать запрос"),
+    ("p", "Назовите каждый элемент и его номинал с единицами: 10 кОм, 4,7 кОм, 100 нФ, 22 мкФ, 3,3 мГн."),
+    ("p", "Скажите, куда подключён каждый элемент: «от входа к точке 1», «с выхода на землю», «между точками 1 и 2»."),
+    ("p", "Вместо соединений можно назвать типовую схему (инвертирующий усилитель, ФНЧ Саллена-Ки, фильтр Рауха) "
+          "и дать номиналы по ролям: «резистор обратной связи 47 кОм»."),
+    ("p", "Если после схемы добавлены элементы, укажите, откуда снимать выход: «выход за ним» или «выход остаётся на месте»."),
+    ("p", "Питание ОУ указывать не нужно: усилитель идеальный."),
+    ("p", "Примеры - кнопка «В запрос» переносит пример на вкладку «Схема»:"),
+    ("ex", "R1 10 кОм от входа к точке 1, C1 100 нФ от точки 1 на землю, R2 22 кОм от точки 1 к выходу, "
+           "C2 10 нФ с выхода на землю; сигнал на вход"),
+    ("ex", "Инвертирующий усилитель на ОУ: входной резистор 4,7 кОм, резистор обратной связи 47 кОм; сигнал на вход"),
+    ("ex", "RC ФНЧ: резистор 1 кОм, конденсатор 100 нФ; после выхода ещё 470 Ом последовательно, выход за ним"),
+    ("h", "Когда программа откажет"),
+    ("p", "Транзисторы, диоды, цифровые микросхемы - вне класса схем."),
+    ("p", "Несколько входов (сумматор, вычитатель, дифференциальный усилитель)."),
+    ("p", "Номиналы не заданы: «собери ФНЧ на 1 кГц» - это расчёт фильтра, он появится в режиме дизайнера."),
+    ("p", "Описание неоднозначно: не сказано, куда подключён элемент, или у элемента два номинала."),
+    ("p", "Пример отказа:"),
+    ("ex", "Собери ФНЧ на 1 кГц"),
+    ("h", "Что дальше"),
+    ("p", "Проверьте нетлист справа: его можно поправить и нажать «Пересчитать нетлист» - модель при этом не вызывается."),
+    ("p", "Замечания под кнопками подскажут, если элемент висит в воздухе или выход ни к чему не подключён."),
+    ("p", "«Открыть в MC12» показывает чертёж схемы в Micro-Cap 12."),
+]
 
 
 # ---------------------------------------------------------------- данные для окна (без tkinter, есть тесты)
@@ -144,8 +175,13 @@ class Window:
     # --- раскладка
     def _build(self):
         mono = ("Consolas", 10)
-        main = ttk.Frame(self.root, padding=10)
-        main.pack(fill="both", expand=True)
+        self.tabs = ttk.Notebook(self.root)
+        self.tabs.pack(fill="both", expand=True, padx=6, pady=(6, 0))
+        main = ttk.Frame(self.tabs, padding=10)
+        self.tabs.add(main, text="Схема")
+        rules = ttk.Frame(self.tabs, padding=10)
+        self.tabs.add(rules, text="Правила")
+        self._build_rules(rules)
         main.columnconfigure(0, weight=5)
         main.columnconfigure(1, weight=6)
         main.rowconfigure(0, weight=1)
@@ -199,6 +235,35 @@ class Window:
 
         self.status = tk.StringVar(value="")
         ttk.Label(self.root, textvariable=self.status, padding=(10, 2), foreground="#5f5e5a").pack(fill="x")
+
+    def _build_rules(self, frame):
+        """Вкладка «Правила»: как писать запрос; примеры вставляются в запрос кнопкой."""
+        text = tk.Text(frame, wrap="word", font=("Segoe UI", 10), relief="flat", padx=12, pady=8,
+                       background=self.root.cget("background"), cursor="arrow")
+        bar = ttk.Scrollbar(frame, orient="vertical", command=text.yview)
+        text.configure(yscrollcommand=bar.set)
+        bar.pack(side="right", fill="y")
+        text.pack(fill="both", expand=True)
+        text.tag_configure("h", font=("Segoe UI", 12, "bold"), spacing1=10, spacing3=4)
+        text.tag_configure("p", spacing3=3, lmargin1=8, lmargin2=20)
+        text.tag_configure("ex", font=("Segoe UI", 10, "italic"), lmargin1=20, lmargin2=20, spacing1=4)
+        for kind, body in RULES:
+            if kind == "h":
+                text.insert("end", body + "\n", "h")
+            elif kind == "p":
+                text.insert("end", "•  " + body + "\n", "p")
+            else:  # пример: текст и кнопка «В запрос»
+                text.insert("end", body + "  ", "ex")
+                b = ttk.Button(text, text="В запрос", command=lambda s=body: self.use_example(s))
+                text.window_create("end", window=b)
+                text.insert("end", "\n")
+        text.configure(state="disabled")
+
+    def use_example(self, prompt):
+        self.prompt.delete("1.0", "end")
+        self.prompt.insert("1.0", prompt)
+        self.tabs.select(0)
+        self.status.set("Пример вставлен в запрос: нажмите «Построить»")
 
     # --- действия
     def _select_translator(self):
