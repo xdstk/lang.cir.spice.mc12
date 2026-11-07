@@ -72,8 +72,12 @@ def cells(run, r):
     md("## 1. Среда\nСтавим библиотеки и проверяем, какой GPU выдан."),
     code("""
 %cd /content
-!pip -q install -U transformers peft accelerate bitsandbytes sentencepiece
+!pip -q install -U transformers peft accelerate bitsandbytes sentencepiece "protobuf>=7.36"
 !nvidia-smi --query-gpu=name,memory.total --format=csv
+# токенизатор SentencePiece (YandexGPT) читается через protobuf: transformers собран под 7.x, в Colab стоит 6.x
+import google.protobuf
+print('protobuf', google.protobuf.__version__, '- ниже 7: Среда выполнения -> Перезапустить сеанс и снова эту ячейку'
+      if int(google.protobuf.__version__.split('.')[0]) < 7 else '')
 """),
     md("""
 ## 2. Drive и код проекта
