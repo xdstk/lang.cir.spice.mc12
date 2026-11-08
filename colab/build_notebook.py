@@ -38,6 +38,10 @@ RUNS = {
                            "06.11.2026: 9B не лучше 4B значимо; Gemma 4 E4B на ноутбук автора целиком не входит). "
                            "Условия те же, что у Qwen3.5-4B (батч 2 x 4). Ответы на остальные выборки можно считать и "
                            "локально: модель в 4 битах около 3-3,5 ГБ."},
+    "q35_4b_seed2": {"model": "Qwen/Qwen3.5-4B", "subset": 2000, "limit": 0, "epochs": 2, "seed": 2,
+                     "about": "Разброс от повторного обучения (решение автора 07.11.2026): Qwen3.5-4B в тех же условиях, "
+                              "что `q35_4b`, кроме seed (2 вместо 1) - меняются порядок записей и начальные веса LoRA. "
+                              "Разница с `q35_4b` - мера шума обучения: с ней сравниваются различия между моделями."},
     "yagpt5_lite": {"model": "yandex/YandexGPT-5-Lite-8B-instruct", "subset": 2000, "limit": 0, "epochs": 2,
                     "about": "Фаза 3, отбор моделей: YandexGPT 5 Lite 8B, русскоязычная модель (собственная лицензия, "
                              "проверена автором). Шаблон чата не знает роли system - инструкция идёт в начало запроса."},
@@ -54,7 +58,7 @@ def settings(run, r):
         f"EPOCHS = {r['epochs']}",
         f"BATCH = {r.get('batch', 2)}".ljust(23) + "# записей за проход; шаг оптимизации всегда 8 записей",
         "ACCUM = 8 // BATCH",
-        "SEED = 1",
+        f"SEED = {r.get('seed', 1)}".ljust(23) + "# порядок записей и начальные веса LoRA",
         "OUT = f'/content/drive/MyDrive/mcnl/{RUN}'",
         "!mkdir -p {OUT}",
         "!python src/mcnl/training.py --data data/dataset/v2 --subset {SUBSET} --limit {LIMIT} --format {FORMAT} --out out/training/{RUN}",
