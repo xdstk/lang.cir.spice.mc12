@@ -85,7 +85,7 @@ print('protobuf', google.protobuf.__version__, '- ниже 7: Среда вып�
 """),
     md("""
 ## 2. Drive и код проекта
-Drive попросит разрешение. Код берётся из GitHub, внизу видно, какой коммит запущен.
+Drive попросит разрешение. Ячейка проверяет свободное место: нужно не меньше 3 ГБ (контрольные точки, адаптер, ответы). Удалённые файлы остаются в корзине Drive и занимают место, пока корзину не очистить. Код берётся из GitHub, внизу видно, какой коммит запущен.
 Если репозиторий закрытый, нужен токен только на чтение: значок ключа слева → секрет `GITHUB_TOKEN`, доступ для ноутбука включён. В текст ячеек и в чат токен не вставлять.
 """),
     code("""
@@ -93,6 +93,21 @@ import os, subprocess
 os.chdir('/content')  # при повторном запуске текущая папка - /content/repo, которую ячейка сейчас удалит
 from google.colab import drive, userdata
 drive.mount('/content/drive')
+
+
+def drive_free(need=3):
+    # Свободно на Drive, ГБ. Colab пишет на Drive через кэш: когда место кончилось, ячейки идут без ошибок, а файлы
+    # на Drive не попадают (08.11.2026, Phi-4-mini). Удалённые контрольные точки лежат в корзине Drive и занимают место.
+    import shutil
+    free = shutil.disk_usage('/content/drive/MyDrive').free / 1e9
+    print(f'Свободно на Drive: {free:.1f} ГБ')
+    if free < need:
+        raise SystemExit(f'На Drive меньше {need} ГБ: очистите корзину Drive (drive.google.com -> Корзина -> '
+                         'Очистить корзину) и запустите ячейку снова. Иначе результаты не сохранятся.')
+    return free
+
+
+drive_free()
 try:
     token = userdata.get('GITHUB_TOKEN')
 except Exception:
@@ -145,6 +160,7 @@ print(f'токенов в примере: медиана {lens[len(lens) // 2]},
 """),
     code("""
 !python colab/train_lora.py --model {MODEL} --data out/training/{RUN} --out {OUT} --epochs {EPOCHS} --seed {SEED} --batch {BATCH} --accum {ACCUM}
+drive_free(1)
 """),
     md("## 7. График обучения\nСохраняется на Drive как `loss.png`: годится для текста работы."),
     code("""
@@ -171,6 +187,7 @@ A = f'--model {MODEL} --adapter {OUT}/adapter --format {FORMAT} --name {RUN}'
 !python colab/predict.py {A} --records data/dataset/v2/train.jsonl --limit 30 --out {OUT}/train30.jsonl
 !python colab/predict.py {A} --records data/dataset/v2/dev.jsonl --out {OUT}/dev.jsonl
 !python colab/predict.py {A} --records data/human_test/v1/paraphrase.jsonl --out {OUT}/paraphrase.jsonl
+drive_free(0.2)
 """),
     md("""
 ### 8б. Остальные выборки (для итоговой таблицы)
@@ -181,6 +198,7 @@ A = f'--model {MODEL} --adapter {OUT}/adapter --format {FORMAT} --name {RUN}'
 !python colab/predict.py {A} --records data/dataset/mc12_real_v1/mc12_real.jsonl --out {OUT}/mc12_real.jsonl
 for s in ['gen_topology', 'gen_family', 'gen_range', 'test']:
     !python colab/predict.py {A} --records data/dataset/v2/{s}.jsonl --out {OUT}/{s}.jsonl
+drive_free(0.2)
 """),
     md("""
 ## 9. Что получилось
@@ -212,6 +230,16 @@ show('Без обучения, dev', 'data/dataset/v2/dev.jsonl', f'{OUT}/untrai
 show('Обучающая выборка', 'data/dataset/v2/train.jsonl', f'{OUT}/train30.jsonl')
 show('Обученная модель, dev', 'data/dataset/v2/dev.jsonl', f'{OUT}/dev.jsonl')
 show('Запросы C01', 'data/human_test/v1/paraphrase.jsonl', f'{OUT}/paraphrase.jsonl')
+"""),
+    md("""
+## 10. Дописать на Drive
+Colab отправляет файлы на Drive не сразу. Перед закрытием сессии - эта ячейка: она дожидается отправки и отключает Drive. Ниже - что лежит в папке запуска; эти же файлы должны быть видны на drive.google.com.
+"""),
+    code("""
+!ls -la {OUT}
+drive_free(0)
+drive.flush_and_unmount()
+print('Drive отключён, файлы отправлены. Для новых ячеек - снова ячейка 2.')
 """),
 ]
 

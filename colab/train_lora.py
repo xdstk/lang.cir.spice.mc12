@@ -20,7 +20,6 @@ import torch  # noqa: E402
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training  # noqa: E402
 from transformers import (AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, Trainer, TrainerCallback,  # noqa: E402
                           TrainingArguments, set_seed)
-from transformers.trainer_utils import get_last_checkpoint  # noqa: E402
 
 from mcnl import hf_runtime, training  # noqa: E402
 
@@ -94,6 +93,17 @@ def collate(pad_id):
     return fn
 
 
+def last_complete(folder):
+    """Последняя полная контрольная точка или None. Папка без файлов бывает, когда Drive перестал принимать запись
+    (08.11.2026: кончилось место, `checkpoint-150` Phi-4-mini осталась пустой) - с неё продолжать нельзя."""
+    folder = Path(folder)
+    if not folder.exists():
+        return None
+    done = [d for d in folder.glob("checkpoint-*") if (d / "trainer_state.json").exists() and (d / "optimizer.pt").exists()
+            and d.name.split("-")[-1].isdigit()]
+    return str(max(done, key=lambda d: int(d.name.split("-")[-1]))) if done else None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True)
@@ -146,7 +156,7 @@ def main():
         save_total_limit=2, report_to=[], seed=a.seed, remove_unused_columns=False,
         prediction_loss_only=True,  # на dev нужны только потери: логиты всей выборки в память не поместятся
         gradient_checkpointing=True, gradient_checkpointing_kwargs={"use_reentrant": False})
-    last = get_last_checkpoint(str(out / "checkpoints")) if (out / "checkpoints").exists() else None
+    last = last_complete(out / "checkpoints")
     clock = SessionClock(out / "time.json", int(last.rsplit("-", 1)[1]) if last else 0)
     trainer = Trainer(model=model, args=args, train_dataset=train, eval_dataset=dev, data_collator=collate(tok.pad_token_id),
                       callbacks=[clock])
@@ -166,6 +176,9 @@ def main():
             "dropped_long": [cut_train, cut_dev], "log": trainer.state.log_history,
             "versions": {"torch": torch.__version__, "transformers": transformers.__version__, "peft": peft.__version__}}
     (out / "run.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+    # контрольные точки после обучения не нужны, а на Drive занимают 0,5-1 ГБ (удалённое уходит в корзину Drive)
+    import shutil
+    shutil.rmtree(out / "checkpoints", ignore_errors=True)
     print(f"готово: {meta['train_seconds'] / 60:.1f} мин (эта сессия - {meta['session_steps']} шагов за "
           f"{meta['session_seconds'] / 60:.1f} мин), пик GPU {meta['gpu_peak_gb']:.1f} ГБ", flush=True)
     if a.max_steps > 0:  # первые шаги медленнее остальных, оценка с запасом
