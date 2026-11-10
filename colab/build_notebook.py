@@ -18,96 +18,79 @@ def md(text):
 
 RUNS = {
     "smoke1": {"model": "Qwen/Qwen2.5-7B-Instruct", "subset": 1000, "limit": 200, "epochs": 5,
-               "about": "Фаза 2, проба конвейера: 200 записей, 5 эпох. Обучение уже сделано (`run.json` на Drive), ячейки 4 и 6 "
-                        "можно пропустить; ячейка 8 дописывает ответы dev до полных 150 - для итоговой таблицы."},
+               "about": "Проба конвейера: 200 записей train v2, 5 эпох."},
     "q35_4b": {"model": "Qwen/Qwen3.5-4B", "subset": 2000, "limit": 0, "epochs": 2,
-               "about": "Фаза 3, отбор моделей: Qwen3.5-4B. Условия у всех кандидатов одни: v2, 2000 записей, 2 эпохи, seed 1."},
+               "about": "Train v2, 2000 записей, 2 эпохи, seed 1."},
     "q35_9b": {"model": "Qwen/Qwen3.5-9B", "subset": 2000, "limit": 0, "epochs": 2, "batch": 1,
-               "about": "Фаза 3, отбор моделей: Qwen3.5-9B, старшая модель того же семейства. Условия те же, что у 4B; "
-                        "батч 1 с накоплением 8 вместо 2 x 4 - шаг оптимизации тот же, а памяти на логиты и активации "
-                        "вдвое меньше (у 4B пик был 10,7 ГБ из 15). Сначала ячейка 4: 10 шагов, память и время. 4B "
-                        "училась около 16 с на шаг (2,2 ч); 9B ожидается примерно вдвое дольше, то есть в две сессии - "
-                        "ячейка 6 продолжает с контрольной точки на Drive (они каждые 50 шагов), время всех сессий "
-                        "складывается в run.json."},
+               "about": "Train v2, 2000 записей, 2 эпохи, seed 1. Батч 1 с накоплением 8: шаг оптимизации тот же, "
+                        "памяти меньше. Обучение может занять две сессии - ячейка 6 продолжит с контрольной точки."},
     "phi4_mini": {"model": "microsoft/Phi-4-mini-instruct", "subset": 2000, "limit": 0, "epochs": 2,
-                  "about": "Фаза 3, отбор моделей: Phi-4-mini (3,8B, MIT), вторая модель 3-4B не от Qwen (решение автора "
-                           "06.11.2026: 9B не лучше 4B значимо; Gemma 4 E4B на ноутбук автора целиком не входит). "
-                           "Условия те же, что у Qwen3.5-4B (батч 2 x 4). Ответы на остальные выборки можно считать и "
-                           "локально: модель в 4 битах около 3-3,5 ГБ."},
+                  "about": "Train v2, 2000 записей, 2 эпохи, seed 1."},
     "q35_4b_seed2": {"model": "Qwen/Qwen3.5-4B", "subset": 2000, "limit": 0, "epochs": 2, "seed": 2,
-                     "about": "Разброс от повторного обучения (решение автора 07.11.2026): Qwen3.5-4B в тех же условиях, "
-                              "что `q35_4b`, кроме seed (2 вместо 1) - меняются порядок записей и начальные веса LoRA. "
-                              "Разница с `q35_4b` - мера шума обучения: с ней сравниваются различия между моделями."},
+                     "about": "Повтор `q35_4b` с seed 2 (порядок записей и начальные веса LoRA): разброс от обучения."},
     "yagpt5_lite": {"model": "yandex/YandexGPT-5-Lite-8B-instruct", "subset": 2000, "limit": 0, "epochs": 2,
-                    "about": "Фаза 3, отбор моделей: YandexGPT 5 Lite 8B, русскоязычная модель (собственная лицензия, "
-                             "проверена автором). Шаблон чата не знает роли system - инструкция идёт в начало запроса."},
+                    "sentencepiece": True,
+                    "about": "Train v2, 2000 записей, 2 эпохи, seed 1. Шаблон чата без роли system: инструкция идёт "
+                             "в начало запроса."},
 }
 
 
 def settings(run, r):
     return "\n".join([
         f"MODEL = '{r['model']}'",
-        f"RUN = '{run}'".ljust(23) + "# имя запуска: папка на Drive",
-        f"SUBSET = {r['subset']}".ljust(23) + "# вложенное подмножество train v2: 1000, 2000 или 3000",
-        f"LIMIT = {r['limit']}".ljust(23) + "# сколько записей взять из подмножества; 0 - все",
+        f"RUN = '{run}'".ljust(23) + "# папка на Drive",
+        f"SUBSET = {r['subset']}".ljust(23) + "# подмножество train v2: 1000, 2000 или 3000",
+        f"LIMIT = {r['limit']}".ljust(23) + "# 0 - всё подмножество",
         "FORMAT = 'netlist'".ljust(23) + "# netlist или ir",
         f"EPOCHS = {r['epochs']}",
-        f"BATCH = {r.get('batch', 2)}".ljust(23) + "# записей за проход; шаг оптимизации всегда 8 записей",
+        f"BATCH = {r.get('batch', 2)}".ljust(23) + "# шаг оптимизации всегда 8 записей",
         "ACCUM = 8 // BATCH",
-        f"SEED = {r.get('seed', 1)}".ljust(23) + "# порядок записей и начальные веса LoRA",
+        f"SEED = {r.get('seed', 1)}",
         "OUT = f'/content/drive/MyDrive/mcnl/{RUN}'",
         "!mkdir -p {OUT}",
         "!python src/mcnl/training.py --data data/dataset/v2 --subset {SUBSET} --limit {LIMIT} --format {FORMAT} --out out/training/{RUN}",
     ])
 
 
+def setup(r):
+    if not r.get("sentencepiece"):
+        return """
+%cd /content
+!pip -q install -U transformers peft accelerate bitsandbytes
+!nvidia-smi --query-gpu=name,memory.total --format=csv
+"""
+    return """
+%cd /content
+!pip -q install -U transformers peft accelerate bitsandbytes sentencepiece "protobuf>=7.36"
+!nvidia-smi --query-gpu=name,memory.total --format=csv
+# токенизатор SentencePiece читается через protobuf 7.x, в Colab стоит 6.x
+import google.protobuf
+print('protobuf', google.protobuf.__version__, '- ниже 7: Среда выполнения -> Перезапустить сеанс и снова эту ячейку'
+      if int(google.protobuf.__version__.split('.')[0]) < 7 else '')
+"""
+
+
 def cells(run, r):
     return [
     md("# Этап 2: " + r["model"] + " (`" + run + "`)\n\n" + r["about"] + """
 
-Цель: научить модель переводить описание схемы на русском в нетлист для Micro-Cap. Метод - QLoRA: веса модели заморожены в 4-битном виде, обучается только малый добавочный слой (LoRA), поэтому хватает бесплатного GPU.
-
-**Перед началом:** Среда выполнения → Сменить среду выполнения → GPU (T4). Ячейки запускаются сверху вниз, вывод виден прямо здесь. Всё важное пишется на Google Drive в папку `mcnl/<RUN>`. Если сессия оборвалась, запустите ячейки заново: обучение продолжится с последней контрольной точки, готовые шаги пропускаются, а ответы модели дописываются с места обрыва.
+QLoRA: веса модели заморожены в 4 битах, обучается только добавочный слой LoRA. Среда выполнения - GPU (T4). Результаты пишутся на Drive в `mcnl/<RUN>`; после обрыва сессии ячейки запускаются заново, обучение и ответы продолжаются с места обрыва.
 """),
-    md("## 1. Среда\nСтавим библиотеки и проверяем, какой GPU выдан."),
-    code("""
-%cd /content
-!pip -q install -U transformers peft accelerate bitsandbytes sentencepiece "protobuf>=7.36"
-!nvidia-smi --query-gpu=name,memory.total --format=csv
-# токенизатор SentencePiece (YandexGPT) читается через protobuf: transformers собран под 7.x, в Colab стоит 6.x
-import google.protobuf
-print('protobuf', google.protobuf.__version__, '- ниже 7: Среда выполнения -> Перезапустить сеанс и снова эту ячейку'
-      if int(google.protobuf.__version__.split('.')[0]) < 7 else '')
-"""),
+    md("## 1. Среда"),
+    code(setup(r)),
     md("""
 ## 2. Drive и код проекта
-Drive попросит разрешение. Ячейка проверяет свободное место: нужно не меньше 3 ГБ (контрольные точки, адаптер, ответы). Удалённые файлы остаются в корзине Drive и занимают место, пока корзину не очистить. Код берётся из GitHub, внизу видно, какой коммит запущен.
-Если репозиторий закрытый, нужен токен только на чтение: значок ключа слева → секрет `GITHUB_TOKEN`, доступ для ноутбука включён. В текст ячеек и в чат токен не вставлять.
+Код берётся из GitHub. Для закрытого репозитория - секрет `GITHUB_TOKEN` (только чтение) в панели ключей слева.
 """),
     code("""
 import os, subprocess
-os.chdir('/content')  # при повторном запуске текущая папка - /content/repo, которую ячейка сейчас удалит
+os.chdir('/content')
 from google.colab import drive, userdata
 drive.mount('/content/drive')
-
-
-def drive_free(need=3):
-    # Свободно на Drive, ГБ. Colab пишет на Drive через кэш: когда место кончилось, ячейки идут без ошибок, а файлы
-    # на Drive не попадают (08.11.2026, Phi-4-mini). Удалённые контрольные точки лежат в корзине Drive и занимают место.
-    import shutil
-    free = shutil.disk_usage('/content/drive/MyDrive').free / 1e9
-    print(f'Свободно на Drive: {free:.1f} ГБ')
-    if free < need:
-        raise SystemExit(f'На Drive меньше {need} ГБ: очистите корзину Drive (drive.google.com -> Корзина -> '
-                         'Очистить корзину) и запустите ячейку снова. Иначе результаты не сохранятся.')
-    return free
-
-
-drive_free()
 try:
     token = userdata.get('GITHUB_TOKEN')
 except Exception:
-    token = None  # открытый репозиторий: токен не нужен
+    token = None
 REPO = 'github.com/xdstk/lang.cir.spice.mc12'
 !rm -rf /content/repo
 done = subprocess.run(['git', 'clone', '-q', '--depth', '1', f'https://x-access-token:{token}@{REPO}' if token else f'https://{REPO}', '/content/repo'],
@@ -118,14 +101,11 @@ if done.returncode:
 %cd /content/repo
 !git log --oneline -1
 """),
-    md("""
-## 3. Настройки запуска
-Настройки этого запуска; ноутбуки других моделей отличаются только ими.
-"""),
+    md("## 3. Настройки"),
     code(settings(run, r)),
     md("""
-## 4. Проба модели
-Шаблон чата: в начале - инструкция (у YandexGPT она внутри запроса пользователя), в конце запроса - начало ответа ассистента (у Qwen3.5 с пустым блоком `<think></think>`: рассуждение выключено). Учиться модель должна только нетлисту и знаку конца реплики (`<|im_end|>`, `<turn|>` или `</s>`). Затем 10 шагов обучения во временную папку: проверка, что модель обучается на T4, и оценка времени полного запуска.
+## 4. Проба
+Шаблон чата и то, чему учится модель (только нетлист и знак конца реплики); затем 10 шагов обучения - память и время.
 """),
     code("""
 import sys
@@ -143,22 +123,15 @@ print(f'токенов в примере: медиана {lens[len(lens) // 2]},
 !rm -rf /content/probe
 !python colab/train_lora.py --model {MODEL} --data out/training/{RUN} --out /content/probe --epochs {EPOCHS} --seed {SEED} --batch {BATCH} --accum {ACCUM} --max-steps 10
 """),
-    md("""
-## 5. Модель без обучения
-Первая загрузка скачивает веса. Ответы на 30 записей dev - точка отсчёта: что умеет модель до обучения, только по инструкции.
-"""),
+    md("## 5. Модель без обучения\n30 записей dev - точка отсчёта."),
     code("""
 !python colab/predict.py --model {MODEL} --format {FORMAT} --records data/dataset/v2/dev.jsonl --limit 30 --out {OUT}/untrained_dev.jsonl --name untrained
 """),
-    md("""
-## 6. Обучение
-Здесь видны полоса прогресса, потери `loss` по шагам и `eval_loss` по эпохам. `loss` должен падать. Если он стоит на месте или становится `nan`, обучение идёт неправильно.
-"""),
+    md("## 6. Обучение\n`loss` должен падать; `nan` или плато - ошибка."),
     code("""
 !python colab/train_lora.py --model {MODEL} --data out/training/{RUN} --out {OUT} --epochs {EPOCHS} --seed {SEED} --batch {BATCH} --accum {ACCUM}
-drive_free(1)
 """),
-    md("## 7. График обучения\nСохраняется на Drive как `loss.png`: годится для текста работы."),
+    md("## 7. График обучения\nСохраняется на Drive как `loss.png`."),
     code("""
 import json, matplotlib.pyplot as plt
 run = json.load(open(f'{OUT}/run.json', encoding='utf-8'))
@@ -174,32 +147,21 @@ print(f"Время обучения: {run['train_seconds'] / 60:.1f} мин (в�
 print('Отброшено длинных примеров (train, dev):', run['dropped_long'])
 print('Версии:', run['versions'])
 """),
-    md("""
-## 8. Ответы обученной модели
-Три набора: 30 записей из обучающей выборки (модель должна справиться почти полностью), весь dev (150) и запросы C01, которых модель не видела и которые написаны не шаблонами.
-"""),
+    md("## 8. Ответы обученной модели\n30 записей train, весь dev (150), запросы C01."),
     code("""
 A = f'--model {MODEL} --adapter {OUT}/adapter --format {FORMAT} --name {RUN}'
 !python colab/predict.py {A} --records data/dataset/v2/train.jsonl --limit 30 --out {OUT}/train30.jsonl
 !python colab/predict.py {A} --records data/dataset/v2/dev.jsonl --out {OUT}/dev.jsonl
 !python colab/predict.py {A} --records data/human_test/v1/paraphrase.jsonl --out {OUT}/paraphrase.jsonl
-drive_free(0.2)
 """),
-    md("""
-### 8б. Остальные выборки (для итоговой таблицы)
-test v2 (500), `gen_*` (300), `mc12_real` (13): около 800 запросов. Нужны для моделей, которые не помещаются на ноутбук автора (9B); остальные можно считать локально. Каждый файл продолжается с места обрыва: если сессия кончится, запустить ячейки 1-3 и эту снова.
-"""),
+    md("### 8б. Остальные выборки\n`mc12_real`, `gen_*`, test v2 - около 800 запросов; после обрыва - ячейки 1-3 и эта."),
     code("""
 A = f'--model {MODEL} --adapter {OUT}/adapter --format {FORMAT} --name {RUN}'
 !python colab/predict.py {A} --records data/dataset/mc12_real_v1/mc12_real.jsonl --out {OUT}/mc12_real.jsonl
 for s in ['gen_topology', 'gen_family', 'gen_range', 'test']:
     !python colab/predict.py {A} --records data/dataset/v2/{s}.jsonl --out {OUT}/{s}.jsonl
-drive_free(0.2)
 """),
-    md("""
-## 9. Что получилось
-Здесь быстрая прикидка: точное совпадение строк ответа с эталоном, без учёта порядка. Настоящая оценка с MC12 идёт отдельно, на ноутбуке с Micro-Cap: она считает схему верной и при других именах узлов, поэтому её цифры выше.
-"""),
+    md("## 9. Быстрая проверка\nСовпадение строк ответа с эталоном без учёта порядка. Точная оценка - в MC12, отдельно."),
     code("""
 import sys
 sys.path.insert(0, 'src')
@@ -215,7 +177,7 @@ def show(title, records, answers, n=4):
     gold = {r['id']: r for r in training.read_jsonl(records)}
     rows = training.read_jsonl(answers)
     same = sum(lines(a['output']) == lines(training.answer_for(gold[a['id']], FORMAT)) for a in rows)
-    display(Markdown(f'### {title}: совпало строка в строку {same} из {len(rows)}'))
+    display(Markdown(f'### {title}: совпало {same} из {len(rows)}'))
     for a in rows[:n]:
         g = gold[a['id']]
         print('ЗАПРОС:', g['prompt'][:200]); print('ЭТАЛОН:', training.answer_for(g, FORMAT).replace(chr(10), ' | '))
@@ -226,16 +188,6 @@ show('Без обучения, dev', 'data/dataset/v2/dev.jsonl', f'{OUT}/untrai
 show('Обучающая выборка', 'data/dataset/v2/train.jsonl', f'{OUT}/train30.jsonl')
 show('Обученная модель, dev', 'data/dataset/v2/dev.jsonl', f'{OUT}/dev.jsonl')
 show('Запросы C01', 'data/human_test/v1/paraphrase.jsonl', f'{OUT}/paraphrase.jsonl')
-"""),
-    md("""
-## 10. Дописать на Drive
-Colab отправляет файлы на Drive не сразу. Перед закрытием сессии - эта ячейка: она дожидается отправки и отключает Drive. Ниже - что лежит в папке запуска; эти же файлы должны быть видны на drive.google.com.
-"""),
-    code("""
-!ls -la {OUT}
-drive_free(0)
-drive.flush_and_unmount()
-print('Drive отключён, файлы отправлены. Для новых ячеек - снова ячейка 2.')
 """),
 ]
 
