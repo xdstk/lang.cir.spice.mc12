@@ -28,7 +28,6 @@
 | `src/mcnl/human_test.py`, `data/human_test/` | человеческий тест: импорт запросов, разметка эталонов, сборка выборок (docs/human_test.md) |
 | `src/mcnl/make_test_cir.py` | генерация тестового .CIR (RC-фильтр; заготовка для spice2cir) |
 | `src/mcnl/audit_netlists.py` | статический аудит пар «подпись - нетлист» (Masala-CHAI) |
-| `mc_list.bat`, `run_mc12.cmd` | шаблоны пакетного запуска MC12 |
 | `tests/` | эталонные схемы и регрессионные тесты |
 
 Только стандартная библиотека Python 3.9+.

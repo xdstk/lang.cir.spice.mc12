@@ -36,8 +36,10 @@
 - проба фазы 2, Qwen2.5 7B: https://colab.research.google.com/github/xdstk/lang.cir.spice.mc12/blob/main/colab/stage2_smoke1.ipynb
 - Qwen3.5-4B: https://colab.research.google.com/github/xdstk/lang.cir.spice.mc12/blob/main/colab/stage2_q35_4b.ipynb
 - Qwen3.5-9B: https://colab.research.google.com/github/xdstk/lang.cir.spice.mc12/blob/main/colab/stage2_q35_9b.ipynb
-- Gemma 4 E4B: https://colab.research.google.com/github/xdstk/lang.cir.spice.mc12/blob/main/colab/stage2_gemma4_e4b.ipynb
 - YandexGPT 5 Lite 8B: https://colab.research.google.com/github/xdstk/lang.cir.spice.mc12/blob/main/colab/stage2_yagpt5_lite.ipynb
+- Phi-4-mini-instruct: https://colab.research.google.com/github/xdstk/lang.cir.spice.mc12/blob/main/colab/stage2_phi4_mini.ipynb
+- Qwen3.5-4B, seed 2: https://colab.research.google.com/github/xdstk/lang.cir.spice.mc12/blob/main/colab/stage2_q35_4b_seed2.ipynb
+- Gemma 4 E4B: ноутбук удалён 10.11.2026 (модель не обучалась, заменена Phi-4-mini); при необходимости - из истории git
 Репозиторий публичный (решение автора 02.11.2026): с токеном Colab код не скачал, причину не выясняли.
 Любой запуск в Colab лежит на Drive в `mcnl/<RUN>`: адаптер, `run.json`, `loss.png`, ответы. Ноутбуки собирает `colab/build_notebook.py` (словарь `RUNS`), в JSON их не правят.
 
