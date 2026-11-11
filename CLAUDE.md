@@ -61,6 +61,7 @@
 - Датасет v2 (docs/generator_v2_spec.md): `filters_v2.py` - новые топологии (отдельно от formulas.TOPOLOGIES, v1 воспроизводится);
   `compose.py` - цепочки и добавки, запросы к ним; `prompts_v2.py` - семейства freeform, terse, правки текста;
   `edge_cases.py` - странные схемы и отказы;
+  `prompts_v3.py` - v3: имена узлов из запроса в эталоне (буквы - как есть, число k - Nk), описание не по порядку;
   `generate_v2.py` - сборка gen-2; `paraphrase.py` - парафразы train; датасет - data/dataset/v2 (заморожен);
   главная метрика - data/dataset/llm_test_v1 (заморожена).
 - Обучение (этап 2, docs/stage2_plan.md): `training.py` - инструкция, экспорт, метки; `hf_runtime.py` - загрузка и генерация; `colab/` - обучение и ответы;
