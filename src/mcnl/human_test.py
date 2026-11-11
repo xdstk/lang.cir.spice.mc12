@@ -35,6 +35,7 @@ DIR = ROOT / "data" / "human_test"
 RAW = DIR / "raw.jsonl"
 LABELS = DIR / "labels.md"
 FROZEN_LLM = ROOT / "data" / "dataset" / "llm_test_v1"  # заморожено: сборка эти выборки не пишет
+FROZEN_LLM2 = ROOT / "data" / "dataset" / "llm_test2_v1"  # заморожено 11.11.2026
 CLASSES = {"A", "A1", "B", "out", "unclear", "?"}
 DEV_AUTHORS = {"A01"}  # автор работы знает шаблоны генератора: его запросы - dev, не тест
 # C01, C02, … - запросы, написанные языковой моделью (внешней или Claude): это синтетика, не человеческий тест;
@@ -193,7 +194,7 @@ def build(outdir=None, workdir=None):
         if r["split"].startswith("llm_test") and r["admission"]["mc12_run"] and not r["admission"]["admitted"]:
             r["admission"].update(admitted=True, relaxed=True)  # S4c сравнивает кривые MC12 и формулы не требует
     report["rejected"] = [{"id": r["id"], "admission": r["admission"]} for r in admitted if not r["admission"]["admitted"]]
-    frozen = () if outdir else ("llm_test", "llm_test_chatty") if FROZEN_LLM.exists() else ()
+    frozen = () if outdir else (("llm_test", "llm_test_chatty") if FROZEN_LLM.exists() else ()) +         (("llm_test2", "llm_test2_chatty") if FROZEN_LLM2.exists() else ())
     outdir = Path(outdir or DIR / "v1")
     outdir.mkdir(parents=True, exist_ok=True)
     manifest = {"files": {}, "report": report}

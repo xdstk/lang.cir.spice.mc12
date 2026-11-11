@@ -89,6 +89,17 @@ class ImportAndLabels(Base):
             self.assertEqual(b.count(b"\n"), info["records"])
         self.assertEqual(m["files"]["llm_test.jsonl"]["records"], 100)
 
+    def test_llm_test2_frozen(self):
+        """llm_test2 (Kimi, D02) заморожена 11.11.2026, до генерации v3."""
+        d = ROOT / "data" / "dataset" / "llm_test2_v1"
+        m = json.loads((d / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(m["frozen"], "2026-11-11")
+        for name, info in m["files"].items():
+            b = (d / name).read_bytes()
+            self.assertEqual(hashlib.sha256(b).hexdigest(), info["sha256"], name)
+            self.assertEqual(b.count(b"\n"), info["records"])
+        self.assertEqual(m["files"]["llm_test2.jsonl"]["records"], 100)
+
     def test_clean_form_in_labels(self):
         p = self.write_csv("d01.csv", ["RC ФНЧ: R 1к, C 100н - хватит?"])
         rec = human_test.import_file(p, "D01")[0]
