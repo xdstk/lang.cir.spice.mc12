@@ -58,6 +58,17 @@ def check(original, new):
     return errs
 
 
+def name_conflict(original, new, expected_type):
+    """Д4: парафраза называет тип фильтра, которого нет ни в исходном запросе, ни в эталоне
+    (train-00752: «RL ФНЧ», а по соединениям - ФВЧ). -> текст замечания или None.
+    Тип из исходного запроса допустим: у добавок он может честно отличаться от итогового."""
+    from mcnl import app
+    named = app.named_type(new)
+    if named is None or named == expected_type or named == app.named_type(original):
+        return None
+    return f"название: в парафразе {app.TYPE_WORD[named]}, по эталону {app.TYPE_WORD.get(expected_type, expected_type)}"
+
+
 def read_tsv(folder):
     """Части data/paraphrase_v2/part*.tsv: id, табуляция, запрос."""
     out = {}
@@ -80,8 +91,9 @@ def export(train, out):
     return len(recs)
 
 
-def apply(srcdir, para_file, outdir):
-    """Подставить парафразы в train, остальные выборки скопировать; записать манифест с SHA-256."""
+def apply(srcdir, para_file, outdir, check_names=False):
+    """Подставить парафразы в train, остальные выборки скопировать; записать манифест с SHA-256.
+    check_names (с v3) - отбрасывать парафразы, чьё название фильтра противоречит эталону (Д4)."""
     srcdir, outdir = Path(srcdir), Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     para = read_tsv(para_file) if Path(para_file).is_dir() else {r["id"]: r["prompt"] for r in read_jsonl(para_file)}
@@ -93,6 +105,9 @@ def apply(srcdir, para_file, outdir):
             new = para.get(r["id"])
             if name == "train.jsonl" and r.get("paraphrase") and new:
                 errs = [] if r.get("refuse") else check(r["prompt"], new)
+                if check_names and not r.get("refuse"):
+                    conflict = name_conflict(r["prompt"], new, (r.get("expected") or {}).get("type"))
+                    errs += [conflict] if conflict else []
                 if errs:
                     errors.append({"id": r["id"], "prompt": r["prompt"], "new": new, "errors": errs})
                     continue

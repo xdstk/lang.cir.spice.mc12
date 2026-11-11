@@ -241,11 +241,11 @@ def op_phrase(op, vals, b, rng):
     }[op])
 
 
-def describe_addon(ref, rng):
+def describe_addon(ref, rng, gen=2):
     b = describe_ru.Brief(rng)
     b.units = rng.random() < 0.5
     base = {"params": ref["params"]["base"], "class": ref["params"]["base_topology"]}
-    head = describe_ru.describe_a1_brief(base, rng) if rng.random() < 0.6 else describe_ru.describe_a1(base, rng)
+    head = describe_ru.describe_a1_brief(base, rng, gen) if rng.random() < 0.6 else describe_ru.describe_a1(base, rng, gen)
     tail = [op_phrase(op, vals, b, rng) for op, vals in ref["params"]["ops"]]
     return f"{head.rstrip('. ')}; {'; '.join(tail)}"
 

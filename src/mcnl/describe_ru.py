@@ -44,8 +44,9 @@ WORDS = {"R": ("резистор", "резистор", "включён", "соп
 class Style:
     """Выбор вариантов, единый для одного запроса."""
 
-    def __init__(self, rng):
+    def __init__(self, rng, gen=2):
         self.rng = rng
+        self.gen = gen  # поколение генератора: с gen 3 - исправления v3 (docs/generator_v3_spec.md, раздел 2)
         self.gnd = rng.choice(list(GND_FORMS))
         self.inner = rng.choice(list(INNER_FORMS))
         self.comma = rng.random() < 0.7  # десятичная запятая чаще точки
@@ -77,8 +78,11 @@ class Style:
             if v < 1e-9:
                 opts = [f"{self.num(v / 1e-12)} пФ"]
             elif v < 1e-6:
+                # Д1: до gen 3 пикофарады округлялись до целого («3935 пФ» при эталоне 3.9354n); число вариантов
+                # то же, поэтому выбор rng и остальной текст совпадают с gen 2
+                pf = self.num(v / 1e-12) if self.gen >= 3 else str(int(round(v / 1e-12)))
                 opts = [f"{self.num(v / 1e-9)} нФ"] + ([f"{self.num(v / 1e-6)} мкФ"] if v >= 100e-9 else []) \
-                    + ([f"{int(round(v / 1e-12))} пФ"] if v < 10e-9 else [])
+                    + ([f"{pf} пФ"] if v < 10e-9 else [])
             else:
                 opts = [f"{self.num(v / 1e-6)} мкФ"]
         else:
@@ -117,12 +121,12 @@ def _label(e, st):
     return f" {e['name']}" if st.designators else ""
 
 
-def describe_a(netlist, family, rng):
+def describe_a(netlist, family, rng, gen=2):
     """Запрос задачи A по каноническому нетлисту."""
     elems, err = canon.parse_netlist(netlist)
     if err:
         raise ValueError(err)
-    st = Style(rng)
+    st = Style(rng, gen)
     src = [e for e in elems if e["type"] == "V"]
     two = [e for e in elems if e["type"] in "RCL"]
     ops = [e for e in elems if e["type"] == "OPAMP"]
@@ -194,9 +198,9 @@ def _path_order(two):
     return out
 
 
-def describe_a1(ref, rng):
+def describe_a1(ref, rng, gen=2):
     """Запрос задачи A′: топология названа словами, номиналы - по ролям (data/roles_ru.json)."""
-    st = Style(rng)
+    st = Style(rng, gen)
     stages = ref["params"] if isinstance(ref["params"], list) else [dict(ref["params"], topology=ref["class"])]
 
     def stage_text(p):
@@ -272,15 +276,22 @@ def describe_brief(elems, rng):
     return b.sep.join(items)
 
 
-def describe_a1_brief(ref, rng):
+def short_roles(topology, gen=2):
+    """Короткие обозначения ролей; с gen 3 - поправки short_roles_v3 (Д2: «Cа», «Cб» у полосового МОС - наше
+    соглашение, из запроса не выводится)."""
+    r = ROLES_ALL[topology]
+    return {**r["short_roles"], **r.get("short_roles_v3", {})} if gen >= 3 else r["short_roles"]
+
+
+def describe_a1_brief(ref, rng, gen=2):
     """Краткая запись задачи A′: «инв. усилитель: Rвх 10к, Rос 100к; сигнал на вх»."""
     b = Brief(rng)
     stages = ref["params"] if isinstance(ref["params"], list) else [dict(ref["params"], topology=ref["class"])]
 
     def stage(p):
         r = ROLES_ALL[p["topology"]]
-        vals = [f"{r['short_roles'][k]} {b.value(k[0], canon.format_value(v))}" for k, v in p.items()
-                if k in r["short_roles"]]
+        sr = short_roles(p["topology"], gen)
+        vals = [f"{sr[k]} {b.value(k[0], canon.format_value(v))}" for k, v in p.items() if k in sr]
         name = rng.choice(r["short_names"]) + (" с усилением" if p.get("Ra") and "names_gain" in r else "")
         return name + (": " + ", ".join(vals) if vals else "")
 

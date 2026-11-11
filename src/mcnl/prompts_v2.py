@@ -98,13 +98,24 @@ def parse_freeform(prompt):
 
 
 # ---------------------------------------------------------------- terse
-def describe_terse(ref, rng):
-    """Название и номиналы в порядке ролей, без подписей ролей."""
+def ambiguous_roles(ref):
+    """Роли, которые в краткой записи нельзя определить по типу элемента: есть другая роль того же типа
+    с другим номиналом (Д3, test-00241: у Саллен-Ки ФВЧ два конденсатора и два резистора)."""
+    p = {k: v for k, v in ref["params"].items() if k in describe_ru.ROLES_ALL[ref["class"]]["roles"]}
+    return {k for k in p for j in p if j != k and j[0] == k[0] and abs(p[j] - p[k]) > 1e-9 * max(abs(p[j]), abs(p[k]))}
+
+
+def describe_terse(ref, rng, gen=2):
+    """Название и номиналы в порядке ролей, без подписей ролей; с gen 3 - с подписью у ролей, которые иначе
+    не определить (Д3). Подписи не тратят rng: у схем без таких ролей текст тот же, что в gen 2."""
     r = describe_ru.ROLES_ALL[ref["class"]]
     b = describe_ru.Brief(rng)
     b.units = rng.random() < 0.3
     name = rng.choice(r["short_names"] + r.get("aliases", {}).get("names", [])[:3])
-    vals = [b.value(k[0], canon.format_value(ref["params"][k])) for k in r["roles"] if k in ref["params"]]
+    label = ambiguous_roles(ref) if gen >= 3 else set()
+    sr = describe_ru.short_roles(ref["class"], gen)
+    vals = [(f"{sr[k]} " if k in label else "") + b.value(k[0], canon.format_value(ref["params"][k]))
+            for k in r["roles"] if k in ref["params"]]
     text = " ".join([name.lower() if rng.random() < 0.7 else name] + vals)
     dc = ref["params"].get("dc", 0)  # постоянное напряжение входит в эталон, запрос обязан его назвать
     return f"{text}, {b.source(canon.format_value(dc))}" if dc else text
