@@ -156,6 +156,8 @@ def _freeform(elems, label, rng, shuffled):
     «узел», «на землю», нумерация и вторая запись ОУ, источник в начале."""
     b = describe_ru.Brief(rng)
     b.units = rng.random() < 0.6
+    # шесть значащих цифр, как в каноне: у Brief их пять, и номинал вида 19.1305k (R/2 двойного Т-моста) терялся бы
+    b.num = lambda x: f"{x:.6g}".replace(".", ",") if b.comma else f"{x:.6g}"
     word = rng.choice(["узел", "точка"])
     form = {"узел": ("узел {}", "узла {}", "узлу {}", "узлом {}"), "точка": ("точка {}", "точки {}", "точке {}", "точкой {}")}[word]
     bare = bool(label) and all(_BARE.match(x) for x in label.values()) and rng.random() < 0.4
