@@ -41,6 +41,8 @@ OWN_PROMPT = 0.7            # цепочка и добавка: доля зап�
 NAMED_SHARE = 0.45          # описание соединений: доля запросов с буквенными и произвольными именами узлов (П1)
 DESIGN_NAME = 0.5           # каскад Саллен-Ки: доля запросов с названием фильтра («ФНЧ Баттерворта 4-го порядка»)
 PARAPHRASE_SHARE = 0.20
+MAX_PROMPT = 600            # знаков: длиннее - схема описывается более кратким семейством (замечание автора 11.11.2026;
+                            # запросы mc12_real - до 503 знаков, llm_test и llm_test2 - до 129)
 PREFIX_SHARE = 0.03         # вступления «собери», «сделай» - реже, чем в v2 (0,08): замечание автора 11.11.2026
 BATCH = 300
 SUBSETS = (1000, 2000, 3000)
@@ -114,22 +116,26 @@ def connections(netlist, rng, families=None):
     families = families or FAMILY_A
     fam = rng.choices(list(families), list(families.values()))[0]
     target = canon.parse_netlist(netlist)[0]
-    if fam == "brief":
-        try:
-            prompt = describe_ru.describe_a(netlist, "brief", rng, gen=3)
-            if iso.match(target, describe_ru.parse_a(prompt, "brief"), "values")["match"]:
-                return "brief", prompt, netlist, {}
-        except ValueError:
-            pass
-        fam = "freeform"
     scheme = None if rng.random() < NAMED_SHARE else "seq"
-    for f in (fam, "freeform"):
+    found = []
+    for f in dict.fromkeys((fam, "freeform", "brief")):  # выбранное семейство, затем более краткие
         try:
-            d = prompts_v3.verified(netlist, f, rng, scheme=scheme)
-            return f, d["prompt"], d["netlist"], {"names": d["names"], "shuffled": d["shuffled"]}
+            if f == "brief":
+                prompt = describe_ru.describe_a(netlist, "brief", rng, gen=3)
+                if not iso.match(target, describe_ru.parse_a(prompt, "brief"), "values")["match"]:
+                    continue
+                cand = ("brief", prompt, netlist, {})
+            else:
+                d = prompts_v3.verified(netlist, f, rng, scheme=scheme)
+                cand = (f, d["prompt"], d["netlist"], {"names": d["names"], "shuffled": d["shuffled"]})
         except (AssertionError, ValueError):  # разбор v1 не рассчитан на элемент на источнике и т.п.
             continue
-    raise AssertionError(f"запрос не построен: {netlist}")
+        if len(cand[1]) <= MAX_PROMPT:
+            return cand
+        found.append(cand)
+    if not found:
+        raise AssertionError(f"запрос не построен: {netlist}")
+    return min(found, key=lambda c: len(c[1]))  # схема велика для любого семейства: самый короткий запрос
 
 
 def _simple(ref):
@@ -146,6 +152,8 @@ def make_prompt(ref, kind, split, rng):
             return "A1", "terse", prompts_v2.describe_terse(ref, r2, 3), net, {}
         fam = "roles" if fam == "roles" else "roles_brief"
         text = describe_ru.describe_a1(ref, r2, 3) if fam == "roles" else describe_ru.describe_a1_brief(ref, r2, 3)
+        if len(text) > MAX_PROMPT and fam == "roles":  # длинный перечень ролей (каскады) - краткой записью
+            fam, text = "roles_brief", describe_ru.describe_a1_brief(ref, r2, 3)
         info = {}
         if ref.get("design") and r2.random() < DESIGN_NAME:
             name = filters_v3.design_name(ref, r2)
@@ -156,7 +164,7 @@ def make_prompt(ref, kind, split, rng):
         d = compose_v3.describe_chain(ref["params"]["sections"], r2)
         return "A", "chain", d["prompt"], net, {"reordered": d["reordered"]}
     if kind == "addon" and r2.random() < OWN_PROMPT:
-        d = compose_v3.describe_addon(ref, r2)
+        d = min((compose_v3.describe_addon(ref, r2) for _ in range(4)), key=lambda x: max(len(x["prompt"]), MAX_PROMPT))
         return "A1", "addon", d["prompt"], net, {"reordered": d["reordered"], "explicit_out": d["explicit_out"]}
     if kind == "mismatch":  # П7: названа одна схема, описаны соединения другой - эталон по соединениям
         d = prompts_v3.verified(net, "freeform", r2, scheme="seq", shuffle=0)

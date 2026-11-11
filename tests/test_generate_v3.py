@@ -76,6 +76,20 @@ class Prompts(unittest.TestCase):
         self.assertEqual(seen, set(generate_v3.FAMILY_A))
         self.assertAlmostEqual(named / fams, generate_v3.NAMED_SHARE, delta=0.1)
 
+    def test_long_prompts_fall_back_to_compact_family(self):
+        """Запрос не длиннее MAX_PROMPT: большая схема описывается более кратким семейством (замечание автора)."""
+        rng = random.Random(6)
+        fams = set()
+        for _ in range(12):
+            ref = generate_v3.sample_circuit("multi", rng, "train")
+            for _ in range(6):
+                fam, prompt, answer, _info = generate_v3.connections(ref["netlist"], rng)
+                fams.add(fam)
+                self.assertLessEqual(len(prompt), generate_v3.MAX_PROMPT, (fam, prompt))
+                self.assertTrue(iso.match(elements(ref["netlist"]), elements(answer), "values")["match"])
+        self.assertIn("freeform", fams)
+        self.assertEqual(generate_v3.MAX_PROMPT, mode2_data.MAX_PROMPT)
+
     def test_mismatch_follows_connections(self):
         rng = random.Random(4)
         ref = generate_v3.sample_circuit("mismatch", rng, "train")

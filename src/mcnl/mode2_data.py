@@ -33,13 +33,14 @@ except ImportError:  # запуск как скрипта
 MIX = {"spec": 0.35, "named": 0.35, "circuit": 0.25, "refuse": 0.05}
 TOL = {"rel": 0.10, "db": 1.0}  # отклонение подобранной схемы от названных целей (номиналы - из рядов)
 FIELDS = ("type", "fc", "f0", "order", "response", "ripple", "Q", "bw", "active", "K", "series")  # порядок в .SPEC
+MAX_PROMPT = 600                 # знаков: более длинный запрос не берётся (как generate_v3.MAX_PROMPT)
 NAMED_ALL_SHARE = 0.3            # названная схема без единого номинала
 TYPE_WORDS = {"LP": ["ФНЧ", "фильтр нижних частот", "фильтр низких частот"],
               "HP": ["ФВЧ", "фильтр верхних частот", "фильтр высоких частот"],
               "BP": ["полосовой фильтр", "ПФ", "полосно-пропускающий фильтр"],
               "BS": ["режекторный фильтр", "заграждающий фильтр", "РФ", "фильтр-пробка"]}
-# глаголы-вступления - в четверти запросов: замечание автора 11.11.2026 (меньше внимания к «сделай», «собери»)
-HEADS = ["", "", "", "", "", "", "нужен ", "нужен ", "требуется ", "рассчитай ", "подбери ", "сделай "]
+# вступление («нужен», «рассчитай», «подбери») - в четверти запросов: замечания автора 11.11.2026
+HEADS = ["", "", "", "", "", "", "", "", "", "нужен ", "рассчитай ", "подбери "]
 MARKERS = ["?", "?", "?", "подобрать", "рассчитать", "найти"]
 MANTISSAS = [1, 1.2, 1.5, 2, 2.2, 2.5, 3, 3.3, 4, 4.7, 5, 6.8, 8]
 REASON_NO_FREQ = "не задана частота"
@@ -242,7 +243,7 @@ def _with_targets(body, spec, rng, named):
     """Описание схемы + цели. У схемы без названия тип фильтра называется обязательно."""
     tail = _target_phrases(spec, rng)
     word = rng.choice(TYPE_WORDS[spec["type"]])
-    lead = rng.choice([f"нужен {word}", f"это {word}", f"должен получиться {word}", word]) if not named or rng.random() < 0.3 else None
+    lead = rng.choice([word, word, f"это {word}", f"нужен {word}"]) if not named or rng.random() < 0.3 else None
     goal = ", ".join(([lead] if lead else []) + tail)
     ask = rng.choice(["", "", "; остальное подобрать", "; подобрать неизвестные номиналы"])
     body = body.rstrip(". ")
@@ -320,6 +321,8 @@ def sample_named(rng, max_tries=300):
                 continue
             family = "named_brief" if brief else "named_roles"
         prompt = _with_targets(body, spec, rng, named=True)
+        if len(prompt) > MAX_PROMPT:
+            continue
         return _record("named", family, prompt, output, spec, unknown, rep,
                        {"topology": top, "hidden": hidden, "reference": ref["netlist"]})
     raise RuntimeError("названная схема режима 2 не собрана")
@@ -367,6 +370,8 @@ def sample_circuit(rng, max_tries=300):
         if rep is None:
             continue
         prompt = _with_targets(body, spec, rng, named=False)
+        if len(prompt) > MAX_PROMPT:
+            continue
         return _record("circuit", family, prompt, output, spec, hidden, rep,
                        {"topology": ref["class"], "hidden": hidden, "reference": ref["netlist"], "names": d["names"],
                         "shuffled": d["shuffled"]})
