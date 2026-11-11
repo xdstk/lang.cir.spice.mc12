@@ -38,15 +38,54 @@ REFUSE needs_design: причина""",
 }
 FORMATS = tuple(SYSTEM)
 
+# Инструкции датасета v3 (gen-3). SYSTEM выше - инструкция v1 и v2, на ней обучены прежние модели: её не менять.
+# Режим 1 отличается одной фразой об именах узлов (docs/generator_v3_spec.md, П1);
+# режим 2 - своя инструкция (docs/mode2_spec.md, раздел 5), только формат нетлиста.
+_NODES_V2 = "Узлы: IN - вход, OUT - выход, 0 - земля, N1, N2, ... - внутренние."
+_NODES_V3 = ("Узлы: IN - вход, OUT - выход, 0 - земля. Узел, названный в запросе, пиши под его именем: буква или имя - "
+             "как есть (узел A - A, точка p1 - P1), номер - с буквой N (узел 3 - N3). Остальные внутренние - N1, N2, ...")
+SYSTEM_V3 = {
+    "netlist": SYSTEM["netlist"].replace(_NODES_V2, _NODES_V3),
+    "ir": SYSTEM["ir"].replace(_NODES_V2, _NODES_V3),
+    "mode2": """Ты переводишь запрос на фильтр на русском в задание для расчёта номиналов. Номиналы не считай. Отвечай только строками, без пояснений.
 
-def messages(prompt, answer=None, fmt="netlist"):
-    """Диалог: система, запрос и, для обучения, ответ."""
-    out = [{"role": "system", "content": SYSTEM[fmt]}, {"role": "user", "content": prompt}]
+Последняя строка - цели, только то, что названо в запросе:
+.SPEC type=<LP|HP|BP|BS> fc=<срез ФНЧ, ФВЧ> или f0=<частота ПФ, РФ> order=<порядок> response=<Butterworth|Chebyshev> ripple=<дБ> Q=<добротность> bw=<полоса> active=yes K=<усиление> series=exact
+type - ФНЧ LP, ФВЧ HP, полосовой BP, режекторный BS. active=yes - если просят активный или на ОУ. Частоты: 500, 1.5k, 20k.
+
+Если схема названа или описана - перед .SPEC строки её элементов; номинал, который нужно подобрать, - знак ?:
+V1 IN 0 DC <напряжение> - источник, 0, если напряжение не задано;
+R1 <узел> <узел> <номинал или ?>, C1 ..., L1 ... - резисторы, конденсаторы, катушки;
+X1 <плюс> <минус> <выход> OPAMP_IDEAL - идеальный ОУ.
+""" + _NODES_V3 + """ Номиналы: 4.7k, 100n, 22u, 3.3m, 1MEG, 470p.
+Если схема не названа и не описана - только строка .SPEC.
+
+Если частота не задана или схема вне класса (транзисторы, диоды, цифровые элементы, несколько входов), ответь одной строкой:
+REFUSE ambiguous: не задана частота
+REFUSE out_of_class: причина""",
+}
+assert _NODES_V3 in SYSTEM_V3["netlist"] and _NODES_V3 in SYSTEM_V3["ir"]
+
+
+def system_for(rec, fmt="netlist"):
+    """Инструкция для записи датасета: режим 2 - своя; записи gen-3 - инструкция v3; остальные - v1 и v2."""
+    if rec.get("mode") == 2:
+        if fmt != "netlist":
+            raise ValueError("режим 2 - только формат netlist")
+        return SYSTEM_V3["mode2"]
+    return SYSTEM_V3[fmt] if (rec.get("gen") or {}).get("version") == "gen-3" else SYSTEM[fmt]
+
+
+def messages(prompt, answer=None, fmt="netlist", system=None):
+    """Диалог: система, запрос и, для обучения, ответ. system - своя инструкция (system_for), иначе - v1 и v2."""
+    out = [{"role": "system", "content": system or SYSTEM[fmt]}, {"role": "user", "content": prompt}]
     return out + ([{"role": "assistant", "content": answer}] if answer is not None else [])
 
 
 def answer_for(rec, fmt="netlist"):
     """Эталонный ответ модели для записи датасета."""
+    if rec.get("mode") == 2:  # нетлист с `?` и строка .SPEC, одна строка .SPEC или отказ
+        return rec["output"].strip()
     if rec.get("refuse"):
         if fmt == "ir":
             return json.dumps({"refuse": rec["refuse"], "reason": rec["reason"]}, ensure_ascii=False)
@@ -115,7 +154,9 @@ def export(data, out, fmt="netlist", subset=None, limit=None):
             recs = [r for r in recs if r.get("subset", 0) <= subset]
         if split == "train" and limit:
             recs = recs[:limit]
-        rows = [{"id": r["id"], "messages": messages(r["prompt"], answer_for(r, fmt), fmt)} for r in recs]
+        if fmt != "netlist":
+            recs = [r for r in recs if r.get("mode") != 2]  # режим 2 - только нетлист
+        rows = [{"id": r["id"], "messages": messages(r["prompt"], answer_for(r, fmt), fmt, system_for(r, fmt))} for r in recs]
         with open(out / f"{split}.jsonl", "w", encoding="utf-8", newline="\n") as fh:
             for row in rows:
                 fh.write(json.dumps(row, ensure_ascii=False) + "\n")

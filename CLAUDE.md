@@ -71,6 +71,8 @@
   оценка локально: `evaluate.py --predictions`.
 - Режим 2 (docs/mode2_spec.md): `synth.py` - разбор `?` и `.SPEC`, схема по умолчанию, расчёт номиналов (формулы + Ньютон,
   ряды E24/E12, каскады, LC-лестницы), численный подбор для схем вне таблицы; проверка - `tests/test_synth.py` с MC12.
+  `mode2_data.py` - примеры режима 2 для v3 (только `.SPEC`; названная или описанная схема с `?`), каждый ответ решается через synth.run;
+  инструкции v3 и режима 2 - `training.SYSTEM_V3`, выбор - `training.system_for` (SYSTEM - v1 и v2, не менять).
 - Режим дизайнера: `designer.py` - Active.flt, окно MC12 сообщениями Windows, макрос в схему; `designer_data.py` - данные и оценка;
   `mc12_real.py` - реальные схемы из примеров MC12.
 - Генератор: `sampler.py` - номиналы; `cascade.py` - каскады L3; `describe_ru.py` - русские
