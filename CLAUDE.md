@@ -74,6 +74,7 @@
   ряды E24/E12, каскады, LC-лестницы), численный подбор для схем вне таблицы; проверка - `tests/test_synth.py` с MC12.
   `mode2_data.py` - примеры режима 2 для v3 (только `.SPEC`; названная или описанная схема с `?`), каждый ответ решается через synth.run;
   инструкции v3 и режима 2 - `training.SYSTEM_V3`, выбор - `training.system_for` (SYSTEM - v1 и v2, не менять).
+  `score2.py` - оценка режима 2: parse, circuit (`?` на тех же местах), spec, exact, behavior (synth + MC12); `evaluate.py` делит записи по полю mode.
 - Режим дизайнера: `designer.py` - Active.flt, окно MC12 сообщениями Windows, макрос в схему; `designer_data.py` - данные и оценка;
   `mc12_real.py` - реальные схемы из примеров MC12.
 - Генератор: `sampler.py` - номиналы; `cascade.py` - каскады L3; `describe_ru.py` - русские

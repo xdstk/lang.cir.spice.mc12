@@ -59,9 +59,10 @@ def load(base, adapter=None, four_bit=True):
     return model, tok
 
 
-def generate(model, tok, prompts, fmt="netlist", batch=8, max_new_tokens=MAX_NEW_TOKENS, on_batch=None):
+def generate(model, tok, prompts, fmt="netlist", batch=8, max_new_tokens=MAX_NEW_TOKENS, on_batch=None, systems=None):
     """Ответы на запросы, без случайности -> (ответы, секунд на запрос). on_batch(ответы) вызывается после каждой
-    пачки: прерванная генерация не теряется."""
+    пачки: прерванная генерация не теряется. systems - инструкция для каждого запроса (датасет v3:
+    training.system_for(запись), у режима 2 она своя); без него - инструкция v1 и v2."""
     import torch
     # конец реплики шаблона (<|im_end|>) - eos токенизатора; у Qwen3.5 нет generation_config, и без этого
     # генерация останавливалась бы только на <|endoftext|>, то есть через max_new_tokens
@@ -70,7 +71,8 @@ def generate(model, tok, prompts, fmt="netlist", batch=8, max_new_tokens=MAX_NEW
                   | set(stop if isinstance(stop, list) else [stop] if stop is not None else []))
     out, start = [], time.time()
     for i in range(0, len(prompts), batch):
-        texts = [training.chat_text(tok, training.messages(p, fmt=fmt)) for p in prompts[i:i + batch]]
+        texts = [training.chat_text(tok, training.messages(p, fmt=fmt, system=systems[i + k] if systems else None))
+                 for k, p in enumerate(prompts[i:i + batch])]
         enc = tok(texts, return_tensors="pt", padding=True, add_special_tokens=False).to(model.device)
         with torch.no_grad():
             ids = model.generate(**enc, max_new_tokens=max_new_tokens, do_sample=False, pad_token_id=tok.pad_token_id,

@@ -152,7 +152,8 @@ def make_prompt(ref, kind, split, rng):
             return "A1", "terse", prompts_v2.describe_terse(ref, r2, 3), net, {}
         fam = "roles" if fam == "roles" else "roles_brief"
         text = describe_ru.describe_a1(ref, r2, 3) if fam == "roles" else describe_ru.describe_a1_brief(ref, r2, 3)
-        if len(text) > MAX_PROMPT and fam == "roles":  # длинный перечень ролей (каскады) - краткой записью
+        if len(text) > MAX_PROMPT - 80 and fam == "roles":  # длинный перечень ролей (каскады) - краткой записью;
+            # запас 80 знаков - на название каскада и хвост правки текста
             fam, text = "roles_brief", describe_ru.describe_a1_brief(ref, r2, 3)
         info = {}
         if ref.get("design") and r2.random() < DESIGN_NAME:
@@ -174,8 +175,9 @@ def make_prompt(ref, kind, split, rng):
     return "A", fam, prompt, answer, info
 
 
-def refusal_record(rng, rid, split, seed):
-    r = edge_cases.refusal(rng.choice(score.REFUSE_CODES), rng)
+def refusal_record(rng, rid, split, seed, code=None):
+    """Отказ режима 1; code - код отказа (сборка чередует коды: доли поровну), без него - случайный."""
+    r = edge_cases.refusal(code or rng.choice(score.REFUSE_CODES), rng)
     if r["refuse"] == "needs_design":  # в v3 расчёт номиналов - режим 2, не дизайнер
         r["reason"], r["output"] = REASON_DESIGN, edge_cases.refusal_output("needs_design", REASON_DESIGN)
     prompt, used = mutate(r["prompt"], rng)
@@ -227,10 +229,12 @@ def build_split(split, n, rng, seen, workdir, seed):
     else:
         kinds = plan(n, rng, mode2=split != "gen_family")
     records, slots, mode2 = [], [], []
-    for i, kind in enumerate(kinds):
+    turn = rng.randrange(len(score.REFUSE_CODES))  # коды отказа по кругу: в первой полной сборке случайный выбор
+    for i, kind in enumerate(kinds):               # дал 60, 36 и 27 записей на код
         rid = f"{split}-{i:05d}"
         if kind == "refuse":
-            records.append(refusal_record(rng, rid, split, seed))
+            records.append(refusal_record(rng, rid, split, seed, score.REFUSE_CODES[turn % len(score.REFUSE_CODES)]))
+            turn += 1
             continue
         if kind == "mode2":
             while True:

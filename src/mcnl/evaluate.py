@@ -16,7 +16,7 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mcnl import score, translators  # noqa: E402
+from mcnl import score, score2, translators  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -40,18 +40,23 @@ def evaluate_predictions(preds, records, outdir, timeout=1800):
     with open(outdir / "predictions.jsonl", "w", encoding="utf-8") as fh:
         for p in preds:
             fh.write(json.dumps(p, ensure_ascii=False) + "\n")
-    refs = {r["id"]: dict(r, **{"class": r["topology"]}) for r in records}
-    rows = score.score_all(refs, preds, outdir / "runs", timeout=timeout)
+    # записи режима 2 (датасет v3) оцениваются отдельно: score2 - схема с `?`, поля .SPEC, поведение через synth и MC12
+    mode2 = {r["id"]: r for r in records if r.get("mode") == 2}
+    refs = {r["id"]: dict(r, **{"class": r["topology"]}) for r in records if r["id"] not in mode2}
+    rows = score.score_all(refs, [p for p in preds if p["id"] in refs], outdir / "runs", timeout=timeout)
     meta = {r["id"]: r for r in records}
     for row in rows:
         row["task"], row["family"] = meta[row["id"]]["task"], meta[row["id"]]["family"]
+    rows2 = score2.score_all(mode2, [p for p in preds if p["id"] in mode2], outdir / "runs2", timeout=timeout) if mode2 else []
     with open(outdir / "scores.jsonl", "w", encoding="utf-8") as fh:
-        for row in rows:
+        for row in rows + rows2:
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
     summary = score.summarize(rows)
+    for key in sorted({f"{r['model']}/{r['format']}" for r in rows2}):
+        summary.setdefault(key, {})["mode2"] = score2.summarize([r for r in rows2 if f"{r['model']}/{r['format']}" == key])
     for key in summary:
         rs = [r for r in rows if f"{r['model']}/{r['format']}" == key]
-        for field in ("task", "family"):
+        for field in ("task", "family") if rs else ():
             summary[key][f"by_{field}"] = {v: score.summarize([r for r in rs if r[field] == v])[key]["all"]
                                            for v in sorted({r[field] for r in rs})}
     (outdir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -76,6 +81,12 @@ def main(argv):
         summary = evaluate(tr, records, out)
     sys.stdout.reconfigure(encoding="utf-8")
     for key, s in summary.items():
+        if "mode2" in s:
+            b = s["mode2"]["all"]
+            print(f"{key}  режим 2  n={b['n']}  " + "  ".join(f"{lvl} {b[lvl]['rate']:.3f}" for lvl in score2.LEVELS if b["n"]),
+                  " refusals:", b.get("refusals"), " errors:", b["errors"])
+        if "all" not in s:
+            continue
         a = s["all"]
         print(f"{key}  n={a['n']}  " + "  ".join(
             f"{lvl} {a[lvl]['rate']:.3f} [{a[lvl]['ci95'][0]:.3f}-{a[lvl]['ci95'][1]:.3f}]"
