@@ -66,6 +66,8 @@
 - Обучение (этап 2, docs/stage2_plan.md): `training.py` - инструкция, экспорт, метки; `hf_runtime.py` - загрузка и генерация; `colab/` - обучение и ответы;
   справочная строка - `translators/glm_api.py` (GLM через API Z.ai, ключ ZAI_API_KEY);
   оценка локально: `evaluate.py --predictions`.
+- Режим 2 (docs/mode2_spec.md): `synth.py` - разбор `?` и `.SPEC`, схема по умолчанию, расчёт номиналов (формулы + Ньютон,
+  ряды E24/E12, каскады, LC-лестницы), численный подбор для схем вне таблицы; проверка - `tests/test_synth.py` с MC12.
 - Режим дизайнера: `designer.py` - Active.flt, окно MC12 сообщениями Windows, макрос в схему; `designer_data.py` - данные и оценка;
   `mc12_real.py` - реальные схемы из примеров MC12.
 - Генератор: `sampler.py` - номиналы; `cascade.py` - каскады L3; `describe_ru.py` - русские
