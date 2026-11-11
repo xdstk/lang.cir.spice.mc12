@@ -256,13 +256,16 @@ BASES = ["rc_lp", "rc_hp", "rl_lp", "rl_hp", "rlc_series_bp", "rlc_parallel_bp",
          "rlc_series_lp", "rlc_series_hp", "rlc_series_bs", "mfb_lp", "mfb_hp"]
 
 
-def _reference(netlist, cls, params, unusual=False):
-    """Нетлист -> эталон или причина отказа. unusual - нереальный номинал: разброс и диапазон частот не проверяются."""
+def _reference(netlist, cls, params, unusual=False, max_elements=None, max_opamps=None, band=False):
+    """Нетлист -> эталон или причина отказа. unusual - нереальный номинал: разброс и диапазон частот не проверяются.
+    max_elements, max_opamps - свои пределы размера (compose_v3: схемы на 2-4 ОУ); по умолчанию - пределы v2.
+    band (compose_v3) - полосовая схема отсеивается по Q, а не по подъёму над краями: у полосового фильтра края
+    развёртки всегда на 60 дБ ниже пика, и в v2 такие схемы почти не проходили."""
     elems, err = canon.parse_netlist(netlist)
     if err:
         return None, "parse"
     n_op = sum(e["type"] == "OPAMP" for e in elems)
-    if len(elems) - 1 > MAX_ELEMENTS or n_op > MAX_OPAMPS:
+    if len(elems) - 1 > (max_elements or MAX_ELEMENTS) or n_op > (max_opamps or MAX_OPAMPS):
         return None, "size"
     if not unusual and not filters_v2.spread_ok(netlist):
         return None, "spread"
@@ -280,11 +283,16 @@ def _reference(netlist, cls, params, unusual=False):
         m2 = measure.measure(f2, db2, ph2)
     except (ZeroDivisionError, ValueError, TypeError):
         return None, "solve"
-    if m["type"] != m2["type"] or abs(m["k_pass_db"] - m2["k_pass_db"]) > GRID_DB or max(db) - min(db[0], db[-1]) > MAX_PEAK_DB + abs(db[0] - db[-1]):
+    by_q = band and m["type"] == "BP"
+    if m["type"] != m2["type"] or abs(m["k_pass_db"] - m2["k_pass_db"]) > GRID_DB:
+        return None, "resonance"
+    if by_q and not (m.get("Q") and m.get("f0") and m["Q"] <= sampler.Q_RANGE[1]):
+        return None, "resonance"
+    if not by_q and max(db) - min(db[0], db[-1]) > MAX_PEAK_DB + abs(db[0] - db[-1]):
         return None, "resonance"
     if not sampler.GAIN_DB[0] <= m["k_pass_db"] <= sampler.GAIN_DB[1]:
         return None, "gain"
-    q = ["type", "k_pass_db"] + (["fc"] if m["type"] in ("LP", "HP") and m.get("fc") else [])
+    q = ["type", "k_pass_db"] + (["fc"] if m["type"] in ("LP", "HP") and m.get("fc") else []) + (["f0"] if by_q else [])
     return {"id": cls, "class": cls, "level": "L1" if n_op == 0 else "L2" if n_op == 1 else "L3", "params": params,
             "netlist": canon.to_netlist(elems), "expected": {k: m[k] for k in q}, "quantities": q, "f_char": f_char}, None
 
