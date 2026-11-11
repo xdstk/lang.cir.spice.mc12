@@ -23,7 +23,8 @@ ROOT = Path(__file__).resolve().parents[2]
 FAMILIES = ("list", "table", "narrative", "path", "brief")
 _ROLE_FILE = json.loads((ROOT / "data" / "roles_ru.json").read_text(encoding="utf-8"))
 ROLES = _ROLE_FILE["topologies"]
-ROLES_ALL = {**ROLES, **_ROLE_FILE["topologies_v2"]}  # baseline и генератор v1 видят только ROLES
+# baseline и генератор v1 видят только ROLES; topologies_v3 - названные схемы датасета v3 (filters_v3.py)
+ROLES_ALL = {**ROLES, **_ROLE_FILE["topologies_v2"], **_ROLE_FILE.get("topologies_v3", {})}
 
 # падежи: им., род., дат., вин., твор.
 CASES = ("nom", "gen", "dat", "acc", "ins")
