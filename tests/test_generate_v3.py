@@ -107,6 +107,55 @@ class Prompts(unittest.TestCase):
             self.assertEqual(score.parse_refusal(r["output"])[0], "needs_design")
 
 
+class Frozen(unittest.TestCase):
+    """Датасет v3 заморожен 12.11.2026: файлы не меняются."""
+    DIR = ROOT / "data" / "dataset" / "v3"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.m = json.loads((cls.DIR / "manifest.json").read_text(encoding="utf-8"))
+        cls.recs = {n[:-6]: [json.loads(l) for l in (cls.DIR / n).read_text(encoding="utf-8").splitlines()] for n in cls.m["files"]}
+
+    def test_hashes(self):
+        import hashlib
+        self.assertEqual(self.m["version"], "gen-3")
+        self.assertEqual(self.m["frozen"], "2026-11-12")
+        self.assertEqual({n: i["records"] for n, i in self.m["files"].items()},
+                         {"train.jsonl": 2997, "dev.jsonl": 149, "test.jsonl": 499, "gen_family.jsonl": 100, "gen_range.jsonl": 100})
+        for name, info in self.m["files"].items():
+            b = (self.DIR / name).read_bytes()
+            self.assertEqual(hashlib.sha256(b).hexdigest(), info["sha256"], name)
+            self.assertEqual(b.count(b"\n"), info["records"], name)
+            self.assertNotIn(b"\r", b, name)
+            self.assertIn(info["sha256"], (self.DIR / "README.md").read_text(encoding="utf-8"), name)
+
+    def test_circuits(self):
+        ids = [r["circuit_id"] for rs in self.recs.values() for r in rs if r["circuit_id"]]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertFalse(set(ids) & generate_v3.excluded_circuits())
+
+    def test_train_composition(self):
+        tr = self.recs["train"]
+        self.assertEqual([sum(r["subset"] <= s for r in tr) for s in generate_v3.SUBSETS], [1000, 2000, 2997])
+        self.assertEqual(sum(r["mode"] == 2 for r in tr), 540)
+        self.assertEqual(sum(r["family"] == "paraphrase" for r in tr), 605)
+        self.assertEqual(self.m["paraphrases"], {"author": "C03", "applied": 605, "rejected": 0})
+        self.assertLessEqual(max(len(r["prompt"]) for r in tr), generate_v3.MAX_PROMPT + 40)  # разговорная оболочка парафраз
+        self.assertEqual({r["gen"]["version"] for rs in self.recs.values() for r in rs}, {"gen-3"})
+        self.assertNotIn("gen_topology", self.recs)
+
+    def test_answers(self):
+        """Ответ режима 1 - та же схема, что канон; у режима 2 - `.SPEC` или отказ; инструкция выбирается по записи."""
+        for r in self.recs["test"] + self.recs["dev"]:
+            if r["mode"] == 2:
+                self.assertTrue(r["output"].startswith("REFUSE ") or ".SPEC type=" in r["output"], r["id"])
+                self.assertIn(".SPEC type=", training.system_for(r))
+            elif not r.get("refuse"):
+                self.assertTrue(iso.match(elements(r["canonical"]), elements(r["netlist"]), "values")["match"], r["id"])
+                self.assertEqual(r["circuit_id"], generate_v3.circuit_id(r["canonical"]))
+                self.assertIn("узел 3 - N3", training.system_for(r))
+
+
 def mc12_available():
     try:
         mc12run.find_exe()

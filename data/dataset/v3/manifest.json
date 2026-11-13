@@ -1,0 +1,50 @@
+{
+ "version": "gen-3",
+ "seed": 20261111,
+ "scale": 1.0,
+ "files": {
+  "train.jsonl": {
+   "records": 2997,
+   "sha256": "589f9aad776b7a5ebc82d89fe2338e0f7f17b65ffa6d55546e9150c527e6dee6"
+  },
+  "dev.jsonl": {
+   "records": 149,
+   "sha256": "5121fdca1684f7a7ae0fc38e45970cad7494012433b35ef9dea7700c425248f0"
+  },
+  "test.jsonl": {
+   "records": 499,
+   "sha256": "e3a11598532d60f54bfdd6c4047e711b06b147130afde473c2c4b56eb4c617b8"
+  },
+  "gen_family.jsonl": {
+   "records": 100,
+   "sha256": "4eb4ae534429fe8d827efeeba932ec3f7be23ae65cd6ef9a334b31be34eaf1fb"
+  },
+  "gen_range.jsonl": {
+   "records": 100,
+   "sha256": "7e7253bb93881ce9d05c4154db581ba6303a3b89cefd4e44246073a8a4a13e19"
+  }
+ },
+ "report": {
+  "train": {
+   "rejected": 3
+  },
+  "dev": {
+   "rejected": 1
+  },
+  "test": {
+   "rejected": 1
+  },
+  "gen_family": {
+   "rejected": 0
+  },
+  "gen_range": {
+   "rejected": 0
+  }
+ },
+ "paraphrases": {
+  "author": "C03",
+  "applied": 605,
+  "rejected": 0
+ },
+ "frozen": "2026-11-12"
+}
