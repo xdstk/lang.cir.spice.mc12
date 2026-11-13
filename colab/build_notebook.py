@@ -32,14 +32,20 @@ RUNS = {
                     "sentencepiece": True,
                     "about": "Train v2, 2000 записей, 2 эпохи, seed 1. Шаблон чата без роли system: инструкция идёт "
                              "в начало запроса."},
+    "q35_4b_v3": {"model": "Qwen/Qwen3.5-4B", "subset": 2000, "limit": 0, "epochs": 2, "data": "v3", "compare": "q35_4b",
+                  "about": "Train v3 (режимы 1 и 2), 2000 записей, 2 эпохи, seed 1 - те же условия, что у `q35_4b` на v2. "
+                           "Инструкция зависит от записи: у режима 2 своя (`INSTR = 'v3'` передаётся в predict)."},
 }
 
 
 def settings(run, r):
+    data = r.get("data", "v2")
     return "\n".join([
         f"MODEL = '{r['model']}'",
         f"RUN = '{run}'".ljust(23) + "# папка на Drive",
-        f"SUBSET = {r['subset']}".ljust(23) + "# подмножество train v2: 1000, 2000 или 3000",
+        f"DATA = 'data/dataset/{data}'  # датасет обучения",
+        f"INSTR = '{data}'".ljust(23) + "# инструкция модели при ответах: как при обучении",
+        f"SUBSET = {r['subset']}".ljust(23) + "# подмножество train: 1000, 2000 или 3000",
         f"LIMIT = {r['limit']}".ljust(23) + "# 0 - всё подмножество",
         "FORMAT = 'netlist'".ljust(23) + "# netlist или ir",
         f"EPOCHS = {r['epochs']}",
@@ -48,8 +54,53 @@ def settings(run, r):
         f"SEED = {r.get('seed', 1)}",
         "OUT = f'/content/drive/MyDrive/mcnl/{RUN}'",
         "!mkdir -p {OUT}",
-        "!python src/mcnl/training.py --data data/dataset/v2 --subset {SUBSET} --limit {LIMIT} --format {FORMAT} --out out/training/{RUN}",
+        "!python src/mcnl/training.py --data {DATA} --subset {SUBSET} --limit {LIMIT} --format {FORMAT} --out out/training/{RUN}",
     ])
+
+
+def answers_rest(r):
+    """Ячейки ответов на остальные выборки: у v2 - как раньше; у v3 - выборки v3, выборки v2 для сравнения,
+    модель v2 на test v3 и итоговые llm_test, llm_test2."""
+    if r.get("data", "v2") == "v2":
+        return [
+            md("### 8б. Остальные выборки\n`mc12_real`, `gen_*`, test v2 - около 800 запросов; после обрыва - ячейки 1-3 и эта."),
+            code("""
+A = f'--model {MODEL} --adapter {OUT}/adapter --format {FORMAT} --name {RUN} --instructions {INSTR}'
+!python colab/predict.py {A} --records data/dataset/mc12_real_v1/mc12_real.jsonl --out {OUT}/mc12_real.jsonl
+for s in ['gen_topology', 'gen_family', 'gen_range', 'test']:
+    !python colab/predict.py {A} --records {DATA}/{s}.jsonl --out {OUT}/{s}.jsonl
+""")]
+    return [
+        md("### 8б. Выборки v3\ntest (режимы 1 и 2), gen_family, gen_range - около 700 запросов; после обрыва - ячейки 1-3 и эта."),
+        code("""
+A = f'--model {MODEL} --adapter {OUT}/adapter --format {FORMAT} --name {RUN} --instructions {INSTR}'
+for s in ['test', 'gen_family', 'gen_range']:
+    !python colab/predict.py {A} --records {DATA}/{s}.jsonl --out {OUT}/{s}.jsonl
+"""),
+        md("### 8в. Выборки v2 и mc12_real\nТе же записи, что у моделей на v2: сравнение v2 и v3 на одних запросах (около 800)."),
+        code("""
+A = f'--model {MODEL} --adapter {OUT}/adapter --format {FORMAT} --name {RUN} --instructions {INSTR}'
+!python colab/predict.py {A} --records data/dataset/mc12_real_v1/mc12_real.jsonl --out {OUT}/mc12_real.jsonl
+for s in ['test', 'gen_topology', 'gen_family', 'gen_range']:
+    !python colab/predict.py {A} --records data/dataset/v2/{s}.jsonl --out {OUT}/v2_{s}.jsonl
+"""),
+        md(f"### 8г. Модель v2 на test v3\nАдаптер `{r['compare']}` (обучен на v2) с инструкцией v2, только режим 1 (около 400 запросов): "
+           "насколько v2 справляется с формулировками v3."),
+        code(f"""
+!python colab/predict.py --model {{MODEL}} --adapter /content/drive/MyDrive/mcnl/{r['compare']}/adapter --format {{FORMAT}} --name {r['compare']} --instructions v2 --mode 1 --records {{DATA}}/test.jsonl --out {{OUT}}/{r['compare']}_on_v3_test.jsonl
+"""),
+        md(f"### 8д. Итоговая проверка: llm_test и llm_test2\n**Только один раз, в конце**, когда выбор между v2 и v3 сделан: "
+           f"это единственные выборки, по которым не принималось ни одного решения. Ответы обеих моделей - эта (v3) и `{r['compare']}` (v2)."),
+        code(f"""
+LLM = [('llm_test', 'data/dataset/llm_test_v1/llm_test.jsonl'), ('llm_test_chatty', 'data/dataset/llm_test_v1/llm_test_chatty.jsonl'),
+       ('llm_test2', 'data/dataset/llm_test2_v1/llm_test2.jsonl'), ('llm_test2_chatty', 'data/dataset/llm_test2_v1/llm_test2_chatty.jsonl')]
+A = f'--model {{MODEL}} --adapter {{OUT}}/adapter --format {{FORMAT}} --name {{RUN}} --instructions {{INSTR}}'
+B = f'--model {{MODEL}} --adapter /content/drive/MyDrive/mcnl/{r['compare']}/adapter --format {{FORMAT}} --name {r['compare']} --instructions v2'
+for s, path in LLM:
+    !python colab/predict.py {{A}} --records {{path}} --out {{OUT}}/{{s}}.jsonl
+    !python colab/predict.py {{B}} --records {{path}} --out {{OUT}}/{r['compare']}_{{s}}.jsonl
+"""),
+    ]
 
 
 def setup(r):
@@ -125,7 +176,7 @@ print(f'токенов в примере: медиана {lens[len(lens) // 2]},
 """),
     md("## 5. Модель без обучения\n30 записей dev - точка отсчёта."),
     code("""
-!python colab/predict.py --model {MODEL} --format {FORMAT} --records data/dataset/v2/dev.jsonl --limit 30 --out {OUT}/untrained_dev.jsonl --name untrained
+!python colab/predict.py --model {MODEL} --format {FORMAT} --records {DATA}/dev.jsonl --limit 30 --out {OUT}/untrained_dev.jsonl --name untrained --instructions {INSTR}
 """),
     md("## 6. Обучение\n`loss` должен падать; `nan` или плато - ошибка."),
     code("""
@@ -149,18 +200,12 @@ print('Версии:', run['versions'])
 """),
     md("## 8. Ответы обученной модели\n30 записей train, весь dev (150), запросы C01."),
     code("""
-A = f'--model {MODEL} --adapter {OUT}/adapter --format {FORMAT} --name {RUN}'
-!python colab/predict.py {A} --records data/dataset/v2/train.jsonl --limit 30 --out {OUT}/train30.jsonl
-!python colab/predict.py {A} --records data/dataset/v2/dev.jsonl --out {OUT}/dev.jsonl
+A = f'--model {MODEL} --adapter {OUT}/adapter --format {FORMAT} --name {RUN} --instructions {INSTR}'
+!python colab/predict.py {A} --records {DATA}/train.jsonl --limit 30 --out {OUT}/train30.jsonl
+!python colab/predict.py {A} --records {DATA}/dev.jsonl --out {OUT}/dev.jsonl
 !python colab/predict.py {A} --records data/human_test/v1/paraphrase.jsonl --out {OUT}/paraphrase.jsonl
 """),
-    md("### 8б. Остальные выборки\n`mc12_real`, `gen_*`, test v2 - около 800 запросов; после обрыва - ячейки 1-3 и эта."),
-    code("""
-A = f'--model {MODEL} --adapter {OUT}/adapter --format {FORMAT} --name {RUN}'
-!python colab/predict.py {A} --records data/dataset/mc12_real_v1/mc12_real.jsonl --out {OUT}/mc12_real.jsonl
-for s in ['gen_topology', 'gen_family', 'gen_range', 'test']:
-    !python colab/predict.py {A} --records data/dataset/v2/{s}.jsonl --out {OUT}/{s}.jsonl
-"""),
+    *answers_rest(r),
     md("## 9. Быстрая проверка\nСовпадение строк ответа с эталоном без учёта порядка. Точная оценка - в MC12, отдельно."),
     code("""
 import sys
@@ -184,9 +229,9 @@ def show(title, records, answers, n=4):
         print('ОТВЕТ: ', a['output'].replace(chr(10), ' | ')[:300]); print()
 
 
-show('Без обучения, dev', 'data/dataset/v2/dev.jsonl', f'{OUT}/untrained_dev.jsonl')
-show('Обучающая выборка', 'data/dataset/v2/train.jsonl', f'{OUT}/train30.jsonl')
-show('Обученная модель, dev', 'data/dataset/v2/dev.jsonl', f'{OUT}/dev.jsonl')
+show('Без обучения, dev', f'{DATA}/dev.jsonl', f'{OUT}/untrained_dev.jsonl')
+show('Обучающая выборка', f'{DATA}/train.jsonl', f'{OUT}/train30.jsonl')
+show('Обученная модель, dev', f'{DATA}/dev.jsonl', f'{OUT}/dev.jsonl')
 show('Запросы C01', 'data/human_test/v1/paraphrase.jsonl', f'{OUT}/paraphrase.jsonl')
 """),
 ]

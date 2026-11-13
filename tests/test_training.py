@@ -110,6 +110,29 @@ class Labels(unittest.TestCase):
         self.assertEqual(training.end_of_turn(FakeTokenizer()), [FakeTokenizer.eos_token_id])
 
 
+class Instructions(unittest.TestCase):
+    """Инструкция ответа зависит от того, на чём обучена модель, а не от выборки (колаб: predict --instructions)."""
+
+    def test_v3_model_on_any_split(self):
+        for rec in ({"id": "llm"}, {"gen": {"version": "gen-2"}}, {"mode": 1, "gen": {"version": "gen-3"}}):
+            self.assertEqual(training.instruction(rec, "netlist", "v3"), training.SYSTEM_V3["netlist"], rec)
+        self.assertEqual(training.instruction({"mode": 2}, "netlist", "v3"), training.SYSTEM_V3["mode2"])
+
+    def test_v2_model_unchanged(self):
+        for rec in ({"id": "llm"}, {"mode": 2}, {"gen": {"version": "gen-3"}}):
+            self.assertEqual(training.instruction(rec, "netlist", "v2"), training.SYSTEM["netlist"])
+
+    def test_training_and_answer_agree_on_v3(self):
+        """Чему модель v3 училась (system_for по записи v3) - с тем она и отвечает."""
+        recs = training.read_jsonl(ROOT / "data/dataset/v3/dev.jsonl")
+        for r in recs:
+            self.assertEqual(training.system_for(r), training.instruction(r, "netlist", "v3"), r["id"])
+
+    def test_unknown_dataset(self):
+        with self.assertRaises(ValueError):
+            training.instruction({}, "netlist", "v4")
+
+
 def mc12_available():
     try:
         mc12run.find_exe()

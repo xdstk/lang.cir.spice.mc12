@@ -76,6 +76,25 @@ def system_for(rec, fmt="netlist"):
     return SYSTEM_V3[fmt] if (rec.get("gen") or {}).get("version") == "gen-3" else SYSTEM[fmt]
 
 
+TRAINED_ON = ("v2", "v3")
+
+
+def instruction(rec, fmt="netlist", trained_on="v2"):
+    """Инструкция для ОТВЕТА модели на запись любой выборки (не для обучения: там - system_for).
+    Зависит от того, на чём модель обучена: v2 (и v1) - прежняя инструкция для всех записей; v3 - инструкция v3,
+    у записей режима 2 - своя. Записи llm_test, mc12_real, C01 не несут версии генератора, поэтому
+    system_for(запись) дал бы модели v3 инструкцию v2."""
+    if trained_on not in TRAINED_ON:
+        raise ValueError(f"trained_on: {trained_on}, ожидается {TRAINED_ON}")
+    if trained_on == "v2":
+        return SYSTEM[fmt]
+    if rec.get("mode") == 2:
+        if fmt != "netlist":
+            raise ValueError("режим 2 - только формат netlist")
+        return SYSTEM_V3["mode2"]
+    return SYSTEM_V3[fmt]
+
+
 def messages(prompt, answer=None, fmt="netlist", system=None):
     """Диалог: система, запрос и, для обучения, ответ. system - своя инструкция (system_for), иначе - v1 и v2."""
     out = [{"role": "system", "content": system or SYSTEM[fmt]}, {"role": "user", "content": prompt}]
