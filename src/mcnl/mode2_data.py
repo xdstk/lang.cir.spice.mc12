@@ -262,8 +262,10 @@ def _named_ref(top, rng):
     raise RuntimeError(top)
 
 
-def sample_named(rng, max_tries=300):
-    """Названная схема из таблицы режима 2 (synth.DESIGNS): часть параметров задана, остальные - `?`."""
+def sample_named(rng, max_tries=300, dc0=False):
+    """Названная схема из таблицы режима 2 (synth.DESIGNS): часть параметров задана, остальные - `?`.
+    dc0 (v3.1, дефект Д5): у схемы без единого номинала источник - 0 В. Запрос такой записи называет только схему,
+    поэтому напряжение эталона (в v3 - из исходной схемы, например DC -5) из запроса не узнать. rng не тратится."""
     for _ in range(max_tries):
         top = rng.choice(list(synth.DESIGNS))
         try:
@@ -275,6 +277,8 @@ def sample_named(rng, max_tries=300):
         hidden = params if hide_all else rng.sample(params, rng.randint(1, min(3, len(params))))
         build = synth._builder(top)
         base = {k: v for k, v in ref["params"].items()}
+        if dc0 and hide_all and "dc" in base:
+            base["dc"] = 0
         raw = canon.parse_netlist(build(**base)[0])[0]
         other = canon.parse_netlist(build(**dict(base, **{h: base[h] * 1.37 for h in hidden}))[0])[0]
         for i, e in enumerate(raw):
@@ -403,10 +407,11 @@ def sample_refusal(rng):
 SAMPLERS = {"spec": sample_spec, "named": sample_named, "circuit": sample_circuit, "refuse": sample_refusal}
 
 
-def sample(rng, kind=None):
-    """Один пример режима 2; kind=None - по долям MIX."""
-    kind = kind or rng.choices(list(MIX), list(MIX.values()))[0]
-    return SAMPLERS[kind](rng)
+def sample(rng, kind=None, mix=None, dc0=False):
+    """Один пример режима 2; kind=None - по долям mix (по умолчанию MIX, как в v3); dc0 - см. sample_named."""
+    mix = mix or MIX
+    kind = kind or rng.choices(list(mix), list(mix.values()))[0]
+    return sample_named(rng, dc0=dc0) if kind == "named" else SAMPLERS[kind](rng)
 
 
 if __name__ == "__main__":

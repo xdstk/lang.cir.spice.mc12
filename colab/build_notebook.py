@@ -35,6 +35,14 @@ RUNS = {
     "q35_4b_v3": {"model": "Qwen/Qwen3.5-4B", "subset": 2000, "limit": 0, "epochs": 2, "data": "v3", "compare": "q35_4b",
                   "about": "Train v3 (режимы 1 и 2), 2000 записей, 2 эпохи, seed 1 - те же условия, что у `q35_4b` на v2. "
                            "Инструкция зависит от записи: у режима 2 своя (`INSTR = 'v3'` передаётся в predict)."},
+    "q35_4b_v31_m1": {"model": "Qwen/Qwen3.5-4B", "subset": 2000, "limit": 0, "epochs": 2, "data": "v3_1/mode1", "instr": "v3",
+                      "answers": "v31_m1",
+                      "about": "Адаптер режима 1 на v3.1: 2000 записей только режима 1 (как у `q35_4b` на v2), 2 эпохи, seed 1. "
+                               "Режим 2 - отдельный адаптер `q35_4b_v31_m2` на той же базе; режим выбирает программа."},
+    "q35_4b_v31_m2": {"model": "Qwen/Qwen3.5-4B", "subset": 2000, "limit": 0, "epochs": 2, "data": "v3_1/mode2", "instr": "v3",
+                      "answers": "v31_m2", "mode": 2,
+                      "about": "Адаптер режима 2 на v3.1: 2000 записей подбора номиналов (нетлист с `?` и `.SPEC`), 2 эпохи, seed 1. "
+                               "Сравнение - с общей моделью `q35_4b_v3` на test режима 2."},
 }
 
 
@@ -44,7 +52,7 @@ def settings(run, r):
         f"MODEL = '{r['model']}'",
         f"RUN = '{run}'".ljust(23) + "# папка на Drive",
         f"DATA = 'data/dataset/{data}'  # датасет обучения",
-        f"INSTR = '{data}'".ljust(23) + "# инструкция модели при ответах: как при обучении",
+        f"INSTR = '{r.get('instr', data)}'".ljust(23) + "# инструкция модели при ответах: как при обучении",
         f"SUBSET = {r['subset']}".ljust(23) + "# подмножество train: 1000, 2000 или 3000",
         f"LIMIT = {r['limit']}".ljust(23) + "# 0 - всё подмножество",
         "FORMAT = 'netlist'".ljust(23) + "# netlist или ir",
@@ -61,6 +69,39 @@ def settings(run, r):
 def answers_rest(r):
     """Ячейки ответов на остальные выборки: у v2 - как раньше; у v3 - выборки v3, выборки v2 для сравнения,
     модель v2 на test v3 и итоговые llm_test, llm_test2."""
+    if r.get("answers") == "v31_m1":
+        return [
+            md("### 8б. Выборки v3, режим 1\ntest, gen_family, gen_range - около 600 запросов; после обрыва - ячейки 1-3 и эта."),
+            code("""
+A = f'--model {MODEL} --adapter {OUT}/adapter --format {FORMAT} --name {RUN} --instructions {INSTR}'
+for s in ['test', 'gen_family', 'gen_range']:
+    !python colab/predict.py {A} --records {DATA}/{s}.jsonl --out {OUT}/{s}.jsonl
+"""),
+            md("### 8в. Выборки v2 и mc12_real\nТе же записи, что у `q35_4b` (v2) и `q35_4b_v3` (около 800)."),
+            code("""
+A = f'--model {MODEL} --adapter {OUT}/adapter --format {FORMAT} --name {RUN} --instructions {INSTR}'
+!python colab/predict.py {A} --records data/dataset/mc12_real_v1/mc12_real.jsonl --out {OUT}/mc12_real.jsonl
+for s in ['test', 'gen_topology', 'gen_family', 'gen_range']:
+    !python colab/predict.py {A} --records data/dataset/v2/{s}.jsonl --out {OUT}/v2_{s}.jsonl
+"""),
+            md("### 8г. llm_test и llm_test2\nОтветы `q35_4b` и `q35_4b_v3` на них уже есть. После разбора ошибок v3 эти выборки - "
+               "уровня dev (docs/stage2_plan.md, «Фаза 4: итоги»)."),
+            code("""
+LLM = [('llm_test', 'data/dataset/llm_test_v1/llm_test.jsonl'), ('llm_test_chatty', 'data/dataset/llm_test_v1/llm_test_chatty.jsonl'),
+       ('llm_test2', 'data/dataset/llm_test2_v1/llm_test2.jsonl'), ('llm_test2_chatty', 'data/dataset/llm_test2_v1/llm_test2_chatty.jsonl')]
+A = f'--model {MODEL} --adapter {OUT}/adapter --format {FORMAT} --name {RUN} --instructions {INSTR}'
+for s, path in LLM:
+    !python colab/predict.py {A} --records {path} --out {OUT}/{s}.jsonl
+"""),
+        ]
+    if r.get("answers") == "v31_m2":
+        return [
+            md("### 8б. test, режим 2\n90 записей (80 без отказов) - те же, на которых оценена общая модель `q35_4b_v3`."),
+            code("""
+A = f'--model {MODEL} --adapter {OUT}/adapter --format {FORMAT} --name {RUN} --instructions {INSTR}'
+!python colab/predict.py {A} --records {DATA}/test.jsonl --out {OUT}/test.jsonl
+"""),
+        ]
     if r.get("data", "v2") == "v2":
         return [
             md("### 8б. Остальные выборки\n`mc12_real`, `gen_*`, test v2 - около 800 запросов; после обрыва - ячейки 1-3 и эта."),
@@ -198,13 +239,13 @@ print(f"Время обучения: {run['train_seconds'] / 60:.1f} мин (в�
 print('Отброшено длинных примеров (train, dev):', run['dropped_long'])
 print('Версии:', run['versions'])
 """),
-    md("## 8. Ответы обученной модели\n30 записей train, весь dev (150), запросы C01."),
+    md("## 8. Ответы обученной модели\n30 записей train, весь dev" + ("." if r.get("mode") == 2 else " (150), запросы C01.")),
     code("""
 A = f'--model {MODEL} --adapter {OUT}/adapter --format {FORMAT} --name {RUN} --instructions {INSTR}'
 !python colab/predict.py {A} --records {DATA}/train.jsonl --limit 30 --out {OUT}/train30.jsonl
 !python colab/predict.py {A} --records {DATA}/dev.jsonl --out {OUT}/dev.jsonl
-!python colab/predict.py {A} --records data/human_test/v1/paraphrase.jsonl --out {OUT}/paraphrase.jsonl
-"""),
+""" + ("" if r.get("mode") == 2 else """!python colab/predict.py {A} --records data/human_test/v1/paraphrase.jsonl --out {OUT}/paraphrase.jsonl
+""")),
     *answers_rest(r),
     md("## 9. Быстрая проверка\nСовпадение строк ответа с эталоном без учёта порядка. Точная оценка - в MC12, отдельно."),
     code("""
@@ -232,8 +273,8 @@ def show(title, records, answers, n=4):
 show('Без обучения, dev', f'{DATA}/dev.jsonl', f'{OUT}/untrained_dev.jsonl')
 show('Обучающая выборка', f'{DATA}/train.jsonl', f'{OUT}/train30.jsonl')
 show('Обученная модель, dev', f'{DATA}/dev.jsonl', f'{OUT}/dev.jsonl')
-show('Запросы C01', 'data/human_test/v1/paraphrase.jsonl', f'{OUT}/paraphrase.jsonl')
-"""),
+""" + ("" if r.get("mode") == 2 else """show('Запросы C01', 'data/human_test/v1/paraphrase.jsonl', f'{OUT}/paraphrase.jsonl')
+""")),
 ]
 
 for run, r in RUNS.items():

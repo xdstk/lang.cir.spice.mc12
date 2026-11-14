@@ -68,12 +68,12 @@ assert _NODES_V3 in SYSTEM_V3["netlist"] and _NODES_V3 in SYSTEM_V3["ir"]
 
 
 def system_for(rec, fmt="netlist"):
-    """Инструкция для записи датасета: режим 2 - своя; записи gen-3 - инструкция v3; остальные - v1 и v2."""
+    """Инструкция для записи датасета: режим 2 - своя; записи gen-3 и gen-3.1 (v3.1) - инструкция v3; остальные - v1 и v2."""
     if rec.get("mode") == 2:
         if fmt != "netlist":
             raise ValueError("режим 2 - только формат netlist")
         return SYSTEM_V3["mode2"]
-    return SYSTEM_V3[fmt] if (rec.get("gen") or {}).get("version") == "gen-3" else SYSTEM[fmt]
+    return SYSTEM_V3[fmt] if (rec.get("gen") or {}).get("version") in ("gen-3", "gen-3.1") else SYSTEM[fmt]
 
 
 TRAINED_ON = ("v2", "v3")
