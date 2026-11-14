@@ -1,0 +1,127 @@
+{
+ "version": "gen-3.1",
+ "seed": 20261114,
+ "scale": 1.0,
+ "base": "v3",
+ "frozen": "2026-11-14",
+ "files": {
+  "mode1/train.jsonl": {
+   "records": 2000,
+   "sha256": "a376cdefac88c2ec223960c51cf4cd02435d4c5057c261db6eb5ecc6f33f7c19"
+  },
+  "mode1/dev.jsonl": {
+   "records": 122,
+   "sha256": "8ffd9692b63600f2acea461d468e22cd2b4ed6ce4db1e69e98b3b54cb63f2dc1"
+  },
+  "mode1/test.jsonl": {
+   "records": 409,
+   "sha256": "b1f454c1af8fd7291842fd26d43de470c4c74be8641632b009c0f1b63693072e"
+  },
+  "mode1/gen_family.jsonl": {
+   "records": 100,
+   "sha256": "4eb4ae534429fe8d827efeeba932ec3f7be23ae65cd6ef9a334b31be34eaf1fb"
+  },
+  "mode1/gen_range.jsonl": {
+   "records": 100,
+   "sha256": "7e7253bb93881ce9d05c4154db581ba6303a3b89cefd4e44246073a8a4a13e19"
+  },
+  "mode2/train.jsonl": {
+   "records": 2000,
+   "sha256": "ef7e1dd9835ef4d6c0e7039e6666e61f376c99baa3b15d7bcbaf31206b162b3d"
+  },
+  "mode2/dev.jsonl": {
+   "records": 27,
+   "sha256": "daa7e343cdc92fc4dcfd69c6673d13319f68e2031e2aaece8fc059060e6bff74"
+  },
+  "mode2/test.jsonl": {
+   "records": 90,
+   "sha256": "22a782e0961398f91cbf1d2eb977b2970bf679a54c870ae0239660858514b708"
+  }
+ },
+ "report": {
+  "mode1": {
+   "records": 2000,
+   "short": 400,
+   "paraphrase": 483,
+   "new": 300,
+   "sk_single": 118,
+   "mfb": 106,
+   "lc_without_r": 80,
+   "by_kind": {
+    "named_a1": 515,
+    "named_a": 380,
+    "addon": 244,
+    "chain": 196,
+    "strange": 125,
+    "refuse": 123,
+    "named_short": 120,
+    "multi": 101,
+    "lc": 80,
+    "brief": 60,
+    "sk_short": 40,
+    "mismatch": 16
+   },
+   "by_family": {
+    "paraphrase": 483,
+    "roles_brief": 275,
+    "terse": 205,
+    "freeform": 200,
+    "brief": 197,
+    "addon": 106,
+    "chain": 105,
+    "refuse": 97,
+    "roles": 92,
+    "list": 51,
+    "path": 50,
+    "narrative": 47,
+    "table": 46,
+    "lc_named_chain": 23,
+    "lc_words": 23
+   },
+   "dropped_from_v3": 757,
+   "rejected": 0
+  },
+  "mode2": {
+   "records": 2000,
+   "short": 605,
+   "paraphrase": 120,
+   "new": 1474,
+   "by_kind": {
+    "named": 857,
+    "circuit": 530,
+    "spec": 499,
+    "refuse": 114
+   },
+   "by_family": {
+    "spec": 460,
+    "named_brief": 310,
+    "named_all": 309,
+    "named_roles": 202,
+    "paraphrase": 120,
+    "refuse": 112,
+    "path": 104,
+    "freeform": 103,
+    "table": 100,
+    "list": 90,
+    "narrative": 90
+   },
+   "dropped_d5": [
+    "train-00101",
+    "train-00641",
+    "train-01335",
+    "train-01357",
+    "train-01553",
+    "train-01900",
+    "train-02144",
+    "train-02167",
+    "train-02191",
+    "train-02313",
+    "train-02338",
+    "train-02400",
+    "train-02503",
+    "train-02787"
+   ],
+   "rejected": 0
+  }
+ }
+}
