@@ -248,3 +248,33 @@
 {"id": "H0248", "author": "D02", "prompt": "Нагрузи двойное Т-звено 18к/18к/9к и 15n/15n/30n на повторитель ОУ.", "source": "D02_kimi.txt"}
 {"id": "H0249", "author": "D02", "prompt": "Вариант Саллена-Ки ФВЧ с К=1: R1 5,6к, R2 12к, C1=C2=3,3n.", "source": "D02_kimi.txt"}
 {"id": "H0250", "author": "D02", "prompt": "Коэффициент 1,5 у Саллена-Ки ФНЧ: R1 2,2к, R2 4,7к, C1 33n, C2 15n, Rg 10к, Rf 5,1к.", "source": "D02_kimi.txt"}
+{"id": "H0251", "author": "D03", "prompt": "Саллен-Ки ФНЧ R1 3.9к R2 10к C1 22н C2 4.7н", "source": "D03_gigachat.txt"}
+{"id": "H0252", "author": "D03", "prompt": "MFB полосовой R1 12к R2 12к R3 1к C1 1н C2 10н", "source": "D03_gigachat.txt"}
+{"id": "H0253", "author": "D03", "prompt": "ФНЧ второго порядка с положительной ОС R1 15к R2 5.6к C1 10н C2 33н", "source": "D03_gigachat.txt"}
+{"id": "H0254", "author": "D03", "prompt": "Sallen-Key ФВЧ R1 2.2к R2 8.2к C1 47н C2 15н", "source": "D03_gigachat.txt"}
+{"id": "H0255", "author": "D03", "prompt": "Раух ФНЧ R1 33к R2 10к R3 4.7к C1 2.2н C2 4.7н", "source": "D03_gigachat.txt"}
+{"id": "H0256", "author": "D03", "prompt": "Саллена-Ки ФНЧ повторитель R1 10к R2 10к C1 100н C2 10н", "source": "D03_gigachat.txt"}
+{"id": "H0257", "author": "D03", "prompt": "MFB ФВЧ R1 6.8к R2 6.8к R3 15к C1 4.7н C2 2.2н", "source": "D03_gigachat.txt"}
+{"id": "H0258", "author": "D03", "prompt": "Саллен-Ки ФВЧ с усилением R1 4.7к R2 15к C1 6.8н C2 22н Rf 20к Rg 10к", "source": "D03_gigachat.txt"}
+{"id": "H0259", "author": "D03", "prompt": "ФНЧ Саллен-Ки каскад с RC R1 1к C1 1мкФ затем Саллен-Ки R2 10к R3 3.3к C2 47н C3 10н", "source": "D03_gigachat.txt"}
+{"id": "H0260", "author": "D03", "prompt": "MFB ФНЧ R1 22к R2 22к R3 3.9к C1 470п C2 1н", "source": "D03_gigachat.txt"}
+{"id": "H0261", "author": "D03", "prompt": "Sallen-Key ФНЧ R1 12.7к R2 12.7к C1 6.8н C2 6.8н", "source": "D03_gigachat.txt"}
+{"id": "H0262", "author": "D03", "prompt": "Фильтр Рауха полосовой R1 10к R2 2.2к R3 1к C1 10н C2 47н", "source": "D03_gigachat.txt"}
+{"id": "H0263", "author": "D03", "prompt": "Саллен-Ки ФВЧ повторитель R1 5.6к R2 5.6к C1 3.3н C2 33н", "source": "D03_gigachat.txt"}
+{"id": "H0264", "author": "D03", "prompt": "MFB ФНЧ R1 3.3к R2 3.3к R3 8.2к C1 10н C2 100н", "source": "D03_gigachat.txt"}
+{"id": "H0265", "author": "D03", "prompt": "Саллен-Ки ФНЧ усиление 2 R1 10к R2 10к C1 22н C2 2.2н Rf 10к Rg 10к", "source": "D03_gigachat.txt"}
+{"id": "H0266", "author": "D03", "prompt": "Sallen-Key ФВЧ R1 6.8к R2 20к C1 100н C2 3.3н", "source": "D03_gigachat.txt"}
+{"id": "H0267", "author": "D03", "prompt": "Раух ФВЧ R1 15к R2 47к R3 10к C1 1н C2 4.7н", "source": "D03_gigachat.txt"}
+{"id": "H0268", "author": "D03", "prompt": "Саллена-Ки ФНЧ R1 47к R2 47к C1 1н C2 10н", "source": "D03_gigachat.txt"}
+{"id": "H0269", "author": "D03", "prompt": "MFB полосовой R1 1к R2 1к R3 22к C1 10н C2 1н", "source": "D03_gigachat.txt"}
+{"id": "H0270", "author": "D03", "prompt": "ФНЧ Саллен-Ки R1 3к R2 9.1к C1 15н C2 4.7н", "source": "D03_gigachat.txt"}
+{"id": "H0271", "author": "D03", "prompt": "Sallen-Key ФВЧ повторитель R1 8.2к R2 8.2к C1 2.2н C2 22н", "source": "D03_gigachat.txt"}
+{"id": "H0272", "author": "D03", "prompt": "MFB ФВЧ R1 4.7к R2 4.7к R3 12к C1 6.8н C2 15н", "source": "D03_gigachat.txt"}
+{"id": "H0273", "author": "D03", "prompt": "Саллен-Ки ФНЧ R1 5.1к R2 16к C1 33н C2 6.8н", "source": "D03_gigachat.txt"}
+{"id": "H0274", "author": "D03", "prompt": "Раух ФНЧ R1 22к R2 6.8к R3 2.2к C1 470п C2 2.2н", "source": "D03_gigachat.txt"}
+{"id": "H0275", "author": "D03", "prompt": "Sallen-Key ФВЧ усиление R1 1к R2 3.3к C1 100н C2 10н Rf 15к Rg 15к", "source": "D03_gigachat.txt"}
+{"id": "H0276", "author": "D03", "prompt": "Саллена-Ки ФНЧ каскад два звена первое R1 10к R2 10к C1 10н C2 100н второе R1 4.7к R2 12к C1 22н C2 4.7н", "source": "D03_gigachat.txt"}
+{"id": "H0277", "author": "D03", "prompt": "MFB ФНЧ R1 15к R2 15к R3 3.9к C1 2.2н C2 47н", "source": "D03_gigachat.txt"}
+{"id": "H0278", "author": "D03", "prompt": "Саллен-Ки ФВЧ R1 2.7к R2 7.5к C1 8.2н C2 33н", "source": "D03_gigachat.txt"}
+{"id": "H0279", "author": "D03", "prompt": "Фильтр Рауха полосовой R1 4.7к R2 1к R3 2.2к C1 47н C2 10н", "source": "D03_gigachat.txt"}
+{"id": "H0280", "author": "D03", "prompt": "Sallen-Key ФНЧ повторитель R1 18к R2 18к C1 4.7н C2 47н", "source": "D03_gigachat.txt"}

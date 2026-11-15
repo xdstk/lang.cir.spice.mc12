@@ -2799,3 +2799,394 @@ R4 N3 OUT 5.1k
 X1 N2 N3 OUT OPAMP_IDEAL
 ```
 note: разметка Claude 05.11.2026 - проверить автору
+## H0251 · D03
+> Саллен-Ки ФНЧ R1 3.9к R2 10к C1 22н C2 4.7н
+class: ?
+```netlist
+
+```
+note: дословно пример из задания (docs/llm_test_prompt.txt) - не независимый запрос, в выборку не идёт
+
+## H0252 · D03
+> MFB полосовой R1 12к R2 12к R3 1к C1 1н C2 10н
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 IN N1 12k
+R2 N1 0 12k
+R3 N2 OUT 1k
+C1 N1 OUT 1n
+C2 N1 N2 10n
+X1 0 N2 OUT OPAMP_IDEAL
+```
+note: R2 - на землю, R3 - обратная связь; C1 - узел-выход, C2 - узел-инв. вход (нумерация проекта; в запросе не сказано)
+
+## H0253 · D03
+> ФНЧ второго порядка с положительной ОС R1 15к R2 5.6к C1 10н C2 33н
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 IN N1 15k
+R2 N1 N2 5.6k
+C1 N1 OUT 10n
+C2 N2 0 33n
+X1 N2 OUT OUT OPAMP_IDEAL
+```
+note: C1 - в обратной связи (нумерация из задания)
+
+## H0254 · D03
+> Sallen-Key ФВЧ R1 2.2к R2 8.2к C1 47н C2 15н
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 N1 OUT 2.2k
+R2 N2 0 8.2k
+C1 IN N1 47n
+C2 N1 N2 15n
+X1 N2 OUT OUT OPAMP_IDEAL
+```
+note: R1 - в обратной связи (нумерация из задания)
+
+## H0255 · D03
+> Раух ФНЧ R1 33к R2 10к R3 4.7к C1 2.2н C2 4.7н
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 IN N1 33k
+R2 N1 OUT 10k
+R3 N1 N2 4.7k
+C1 N1 0 2.2n
+C2 N2 OUT 4.7n
+X1 0 N2 OUT OPAMP_IDEAL
+```
+note: R2, C2 - обратная связь, C1 - на землю (нумерация проекта)
+
+## H0256 · D03
+> Саллена-Ки ФНЧ повторитель R1 10к R2 10к C1 100н C2 10н
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 IN N1 10k
+R2 N1 N2 10k
+C1 N1 OUT 100n
+C2 N2 0 10n
+X1 N2 OUT OUT OPAMP_IDEAL
+```
+note: C1 - в обратной связи (нумерация из задания)
+
+## H0257 · D03
+> MFB ФВЧ R1 6.8к R2 6.8к R3 15к C1 4.7н C2 2.2н
+class: unclear
+```netlist
+
+```
+note: MFB ФВЧ - два резистора и три конденсатора, в запросе три резистора и два: схему не построить - отказ ambiguous
+
+## H0258 · D03
+> Саллен-Ки ФВЧ с усилением R1 4.7к R2 15к C1 6.8н C2 22н Rf 20к Rg 10к
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 N1 OUT 4.7k
+R2 N2 0 15k
+C1 IN N1 6.8n
+C2 N1 N2 22n
+R3 N3 0 10k
+R4 N3 OUT 20k
+X1 N2 N3 OUT OPAMP_IDEAL
+```
+note: R1 - в обратной связи (нумерация из задания); Rf - выход-инв. вход, Rg - на землю
+
+## H0259 · D03
+> ФНЧ Саллен-Ки каскад с RC R1 1к C1 1мкФ затем Саллен-Ки R2 10к R3 3.3к C2 47н C3 10н
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 IN N1 1k
+C1 N1 0 1u
+R2 N1 N2 10k
+R3 N2 N3 3.3k
+C2 N2 OUT 47n
+C3 N3 0 10n
+X1 N3 OUT OUT OPAMP_IDEAL
+```
+note: RC ФНЧ, затем Саллен-Ки ФНЧ (C2 - обратная связь); звенья соединены напрямую
+
+## H0260 · D03
+> MFB ФНЧ R1 22к R2 22к R3 3.9к C1 470п C2 1н
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 IN N1 22k
+R2 N1 OUT 22k
+R3 N1 N2 3.9k
+C1 N1 0 470p
+C2 N2 OUT 1n
+X1 0 N2 OUT OPAMP_IDEAL
+```
+note: R2, C2 - обратная связь, C1 - на землю (нумерация проекта)
+
+## H0261 · D03
+> Sallen-Key ФНЧ R1 12.7к R2 12.7к C1 6.8н C2 6.8н
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 IN N1 12.7k
+R2 N1 N2 12.7k
+C1 N1 OUT 6.8n
+C2 N2 0 6.8n
+X1 N2 OUT OUT OPAMP_IDEAL
+```
+note: C1 - в обратной связи (нумерация из задания)
+
+## H0262 · D03
+> Фильтр Рауха полосовой R1 10к R2 2.2к R3 1к C1 10н C2 47н
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 IN N1 10k
+R2 N1 0 2.2k
+R3 N2 OUT 1k
+C1 N1 OUT 10n
+C2 N1 N2 47n
+X1 0 N2 OUT OPAMP_IDEAL
+```
+note: R2 - на землю, R3 - обратная связь; C1 - узел-выход, C2 - узел-инв. вход (нумерация проекта; в запросе не сказано)
+
+## H0263 · D03
+> Саллен-Ки ФВЧ повторитель R1 5.6к R2 5.6к C1 3.3н C2 33н
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 N1 OUT 5.6k
+R2 N2 0 5.6k
+C1 IN N1 3.3n
+C2 N1 N2 33n
+X1 N2 OUT OUT OPAMP_IDEAL
+```
+note: R1 - в обратной связи (нумерация из задания)
+
+## H0264 · D03
+> MFB ФНЧ R1 3.3к R2 3.3к R3 8.2к C1 10н C2 100н
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 IN N1 3.3k
+R2 N1 OUT 3.3k
+R3 N1 N2 8.2k
+C1 N1 0 10n
+C2 N2 OUT 100n
+X1 0 N2 OUT OPAMP_IDEAL
+```
+note: R2, C2 - обратная связь, C1 - на землю (нумерация проекта)
+
+## H0265 · D03
+> Саллен-Ки ФНЧ усиление 2 R1 10к R2 10к C1 22н C2 2.2н Rf 10к Rg 10к
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 IN N1 10k
+R2 N1 N2 10k
+C1 N1 OUT 22n
+C2 N2 0 2.2n
+R3 N3 0 10k
+R4 N3 OUT 10k
+X1 N2 N3 OUT OPAMP_IDEAL
+```
+note: C1 - в обратной связи (нумерация из задания); Rf - выход-инв. вход, Rg - на землю
+
+## H0266 · D03
+> Sallen-Key ФВЧ R1 6.8к R2 20к C1 100н C2 3.3н
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 N1 OUT 6.8k
+R2 N2 0 20k
+C1 IN N1 100n
+C2 N1 N2 3.3n
+X1 N2 OUT OUT OPAMP_IDEAL
+```
+note: R1 - в обратной связи (нумерация из задания)
+
+## H0267 · D03
+> Раух ФВЧ R1 15к R2 47к R3 10к C1 1н C2 4.7н
+class: unclear
+```netlist
+
+```
+note: MFB ФВЧ - два резистора и три конденсатора, в запросе три резистора и два: схему не построить - отказ ambiguous
+
+## H0268 · D03
+> Саллена-Ки ФНЧ R1 47к R2 47к C1 1н C2 10н
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 IN N1 47k
+R2 N1 N2 47k
+C1 N1 OUT 1n
+C2 N2 0 10n
+X1 N2 OUT OUT OPAMP_IDEAL
+```
+note: C1 - в обратной связи (нумерация из задания)
+
+## H0269 · D03
+> MFB полосовой R1 1к R2 1к R3 22к C1 10н C2 1н
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 IN N1 1k
+R2 N1 0 1k
+R3 N2 OUT 22k
+C1 N1 OUT 10n
+C2 N1 N2 1n
+X1 0 N2 OUT OPAMP_IDEAL
+```
+note: R2 - на землю, R3 - обратная связь; C1 - узел-выход, C2 - узел-инв. вход (нумерация проекта; в запросе не сказано)
+
+## H0270 · D03
+> ФНЧ Саллен-Ки R1 3к R2 9.1к C1 15н C2 4.7н
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 IN N1 3k
+R2 N1 N2 9.1k
+C1 N1 OUT 15n
+C2 N2 0 4.7n
+X1 N2 OUT OUT OPAMP_IDEAL
+```
+note: C1 - в обратной связи (нумерация из задания)
+
+## H0271 · D03
+> Sallen-Key ФВЧ повторитель R1 8.2к R2 8.2к C1 2.2н C2 22н
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 N1 OUT 8.2k
+R2 N2 0 8.2k
+C1 IN N1 2.2n
+C2 N1 N2 22n
+X1 N2 OUT OUT OPAMP_IDEAL
+```
+note: R1 - в обратной связи (нумерация из задания)
+
+## H0272 · D03
+> MFB ФВЧ R1 4.7к R2 4.7к R3 12к C1 6.8н C2 15н
+class: unclear
+```netlist
+
+```
+note: MFB ФВЧ - два резистора и три конденсатора, в запросе три резистора и два: схему не построить - отказ ambiguous
+
+## H0273 · D03
+> Саллен-Ки ФНЧ R1 5.1к R2 16к C1 33н C2 6.8н
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 IN N1 5.1k
+R2 N1 N2 16k
+C1 N1 OUT 33n
+C2 N2 0 6.8n
+X1 N2 OUT OUT OPAMP_IDEAL
+```
+note: C1 - в обратной связи (нумерация из задания)
+
+## H0274 · D03
+> Раух ФНЧ R1 22к R2 6.8к R3 2.2к C1 470п C2 2.2н
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 IN N1 22k
+R2 N1 OUT 6.8k
+R3 N1 N2 2.2k
+C1 N1 0 470p
+C2 N2 OUT 2.2n
+X1 0 N2 OUT OPAMP_IDEAL
+```
+note: R2, C2 - обратная связь, C1 - на землю (нумерация проекта)
+
+## H0275 · D03
+> Sallen-Key ФВЧ усиление R1 1к R2 3.3к C1 100н C2 10н Rf 15к Rg 15к
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 N1 OUT 1k
+R2 N2 0 3.3k
+C1 IN N1 100n
+C2 N1 N2 10n
+R3 N3 0 15k
+R4 N3 OUT 15k
+X1 N2 N3 OUT OPAMP_IDEAL
+```
+note: R1 - в обратной связи (нумерация из задания); Rf - выход-инв. вход, Rg - на землю
+
+## H0276 · D03
+> Саллена-Ки ФНЧ каскад два звена первое R1 10к R2 10к C1 10н C2 100н второе R1 4.7к R2 12к C1 22н C2 4.7н
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 IN N1 10k
+R2 N1 N2 10k
+C1 N1 M1 10n
+C2 N2 0 100n
+X1 N2 M1 M1 OPAMP_IDEAL
+R3 M1 N3 4.7k
+R4 N3 N4 12k
+C3 N3 OUT 22n
+C4 N4 0 4.7n
+X2 N4 OUT OUT OPAMP_IDEAL
+```
+note: два звена Саллен-Ки ФНЧ, в каждом C1 - обратная связь; у первого Q около 0,16 - так по номиналам
+
+## H0277 · D03
+> MFB ФНЧ R1 15к R2 15к R3 3.9к C1 2.2н C2 47н
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 IN N1 15k
+R2 N1 OUT 15k
+R3 N1 N2 3.9k
+C1 N1 0 2.2n
+C2 N2 OUT 47n
+X1 0 N2 OUT OPAMP_IDEAL
+```
+note: R2, C2 - обратная связь, C1 - на землю (нумерация проекта)
+
+## H0278 · D03
+> Саллен-Ки ФВЧ R1 2.7к R2 7.5к C1 8.2н C2 33н
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 N1 OUT 2.7k
+R2 N2 0 7.5k
+C1 IN N1 8.2n
+C2 N1 N2 33n
+X1 N2 OUT OUT OPAMP_IDEAL
+```
+note: R1 - в обратной связи (нумерация из задания)
+
+## H0279 · D03
+> Фильтр Рауха полосовой R1 4.7к R2 1к R3 2.2к C1 47н C2 10н
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 IN N1 4.7k
+R2 N1 0 1k
+R3 N2 OUT 2.2k
+C1 N1 OUT 47n
+C2 N1 N2 10n
+X1 0 N2 OUT OPAMP_IDEAL
+```
+note: R2 - на землю, R3 - обратная связь; C1 - узел-выход, C2 - узел-инв. вход (нумерация проекта; в запросе не сказано)
+
+## H0280 · D03
+> Sallen-Key ФНЧ повторитель R1 18к R2 18к C1 4.7н C2 47н
+class: A1
+```netlist
+V1 IN 0 DC 0
+R1 IN N1 18k
+R2 N1 N2 18k
+C1 N1 OUT 4.7n
+C2 N2 0 47n
+X1 N2 OUT OUT OPAMP_IDEAL
+```
+note: C1 - в обратной связи (нумерация из задания)

@@ -211,8 +211,50 @@ def build(outdir=None, workdir=None):
     return manifest
 
 
+def build_llm(author, outdir, workdir=None):
+    """Одна выборка llm_testN по автору D0N -> outdir/llm_testN.jsonl (и _chatty, если есть clean) и manifest.json.
+    Другие выборки не трогает: build пересобирает все незамороженные, а им незачем меняться (llm_test3, 15.11.2026)."""
+    split = llm_split(author)
+    labels = {h: l for h, l in parse_labels(LABELS.read_text(encoding="utf-8")).items() if l["author"] == author}
+    refs, refusals, report = [], [], {"skipped": {}, "errors": []}
+    for hid, lab in labels.items():
+        if lab["class"] in REFUSE_BY_CLASS:
+            refusals.append({"id": hid, "author": author, "split": split, "task": lab["class"], "family": "human",
+                             "topology": "refuse", "level": None, "prompt": lab["prompt"], "refuse": REFUSE_BY_CLASS[lab["class"]],
+                             "note": lab["note"]})
+        elif lab["class"] in ("A", "A1"):
+            try:
+                refs.append(reference(hid, lab))
+            except (ValueError, KeyError, ZeroDivisionError) as err:
+                report["errors"].append(str(err))
+        else:
+            report["skipped"][hid] = lab["class"]
+    admitted = pilot.admit(refs, Path(workdir or ROOT / "out" / "human_runs" / split)) if refs else []
+    for r in admitted:  # как в build: схема считается в MC12 - допуск к формуле не требуется
+        if r["admission"]["mc12_run"] and not r["admission"]["admitted"]:
+            r["admission"].update(admitted=True, relaxed=True)
+    report["rejected"] = [{"id": r["id"], "admission": r["admission"]} for r in admitted if not r["admission"]["admitted"]]
+    good = [r for r in admitted if r["admission"]["admitted"]] + refusals
+    chatty = [dict(r, id=r["id"] + "c", split=split + "_chatty", prompt=r["prompt_orig"]) for r in good
+              if r.get("prompt_orig") and r["prompt_orig"] != r["prompt"]]
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    manifest = {"author": author, "files": {}, "report": report}
+    for name, recs in ((split, good), (split + "_chatty", chatty)):
+        if not recs and name.endswith("_chatty"):
+            continue
+        data = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in sorted(recs, key=lambda r: r["id"])).encode("utf-8")
+        (outdir / f"{name}.jsonl").write_bytes(data)
+        manifest["files"][f"{name}.jsonl"] = {"records": len(recs), "sha256": hashlib.sha256(data).hexdigest()}
+    (outdir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", encoding="utf-8", newline="\n")
+    return manifest
+
+
 def main(argv):
     sys.stdout.reconfigure(encoding="utf-8")
+    if len(argv) > 2 and argv[1] == "build-llm":  # build-llm D03 --out data/dataset/llm_test3_v1
+        print(json.dumps(build_llm(argv[2], argv[argv.index("--out") + 1]), ensure_ascii=False, indent=1))
+        return
     cmd = argv[1] if len(argv) > 1 else "status"
     if cmd == "import":
         author = argv[argv.index("--author") + 1]

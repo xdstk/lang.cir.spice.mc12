@@ -100,6 +100,20 @@ class ImportAndLabels(Base):
             self.assertEqual(b.count(b"\n"), info["records"])
         self.assertEqual(m["files"]["llm_test2.jsonl"]["records"], 100)
 
+    def test_llm_test3_frozen(self):
+        """llm_test3 (GigaChat, D03; Саллен-Ки и MFB) заморожена 15.11.2026, до обучения на v3.2."""
+        d = ROOT / "data" / "dataset" / "llm_test3_v1"
+        m = json.loads((d / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual((m["frozen"], m["author"]), ("2026-11-15", "D03"))
+        for name, info in m["files"].items():
+            b = (d / name).read_bytes()
+            self.assertEqual(hashlib.sha256(b).hexdigest(), info["sha256"], name)
+            self.assertEqual(b.count(b"\n"), info["records"])
+            self.assertIn(info["sha256"], (d / "README.md").read_text(encoding="utf-8"))
+        recs = [json.loads(l) for l in (d / "llm_test3.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertEqual((len(recs), sum(1 for r in recs if r.get("refuse"))), (29, 3))
+        self.assertEqual(human_test.llm_split("D03"), "llm_test3")
+
     def test_clean_form_in_labels(self):
         p = self.write_csv("d01.csv", ["RC ФНЧ: R 1к, C 100н - хватит?"])
         rec = human_test.import_file(p, "D01")[0]
