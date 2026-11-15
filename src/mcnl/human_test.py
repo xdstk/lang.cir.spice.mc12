@@ -44,7 +44,8 @@ DEV_AUTHORS = {"A01"}  # автор работы знает шаблоны ге�
 # у неё out, unclear и B - не пропуск, а эталон-отказ; llm_test_chatty - те же схемы с исходной разговорной формой запроса
 # D02 - вторая выборка (Kimi, 04.11.2026, docs/llm_test_prompt.txt): llm_test2 и llm_test2_chatty, для v3 и проверки
 # переноса на другую модель-автора; llm_test (D01) она не меняет
-SPLITS = ("human_dev", "human_test", "paraphrase", "llm_test", "llm_test_chatty", "llm_test2", "llm_test2_chatty")
+SPLITS = ("human_dev", "human_test", "paraphrase", "llm_test", "llm_test_chatty", "llm_test2", "llm_test2_chatty",
+          "llm_test3", "llm_test3_chatty")  # llm_test3 (D03) - Саллен-Ки и MFB, docs/llm_test_prompt.txt
 AUTHOR_RE = r"[ACD]\d{2}"
 REFUSE_BY_CLASS = {"out": "out_of_class", "unclear": "ambiguous", "B": "needs_design"}
 QUANTITIES = {"LP": ["type", "k_pass_db", "fc"], "HP": ["type", "k_pass_db", "fc"],

@@ -43,6 +43,10 @@ RUNS = {
                       "answers": "v31_m2", "mode": 2,
                       "about": "Адаптер режима 2 на v3.1: 2000 записей подбора номиналов (нетлист с `?` и `.SPEC`), 2 эпохи, seed 1. "
                                "Сравнение - с общей моделью `q35_4b_v3` на test режима 2."},
+    "q35_4b_v32_m1": {"model": "Qwen/Qwen3.5-4B", "subset": 2000, "limit": 0, "epochs": 2, "data": "v3_2/mode1", "instr": "v3",
+                      "answers": "v32_m1",
+                      "about": "Адаптер режима 1 на v3.2: как `q35_4b_v31_m1`, но у половины кратких запросов Саллен-Ки сняты "
+                               "подписи ролей (C1(ос) -> C1). Ответы - только на выборки для наблюдения (решение автора 15.11.2026)."},
 }
 
 
@@ -92,6 +96,23 @@ LLM = [('llm_test', 'data/dataset/llm_test_v1/llm_test.jsonl'), ('llm_test_chatt
 A = f'--model {MODEL} --adapter {OUT}/adapter --format {FORMAT} --name {RUN} --instructions {INSTR}'
 for s, path in LLM:
     !python colab/predict.py {A} --records {path} --out {OUT}/{s}.jsonl
+"""),
+        ]
+    if r.get("answers") == "v32_m1":
+        return [
+            md("### 8б. Выборки для наблюдения\nИз test v3 и test v2 - все запросы Саллен-Ки и по 70 случайных (около 200), затем "
+               "llm_test и llm_test2 целиком (около 240) и llm_test3, если она уже есть в репозитории. Всего около 30 мин."),
+            code("""
+import os
+A = f'--model {MODEL} --adapter {OUT}/adapter --format {FORMAT} --name {RUN} --instructions {INSTR}'
+for s in ['watch_v3', 'watch_v2']:
+    !python colab/predict.py {A} --records {DATA}/{s}.jsonl --out {OUT}/{s}.jsonl
+LLM = [('llm_test', 'data/dataset/llm_test_v1/llm_test.jsonl'), ('llm_test_chatty', 'data/dataset/llm_test_v1/llm_test_chatty.jsonl'),
+       ('llm_test2', 'data/dataset/llm_test2_v1/llm_test2.jsonl'), ('llm_test2_chatty', 'data/dataset/llm_test2_v1/llm_test2_chatty.jsonl'),
+       ('llm_test3', 'data/dataset/llm_test3_v1/llm_test3.jsonl')]
+for s, path in LLM:
+    if os.path.exists(path):
+        !python colab/predict.py {A} --records {path} --out {OUT}/{s}.jsonl
 """),
         ]
     if r.get("answers") == "v31_m2":

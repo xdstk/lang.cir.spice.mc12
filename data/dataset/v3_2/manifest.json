@@ -1,0 +1,76 @@
+{
+ "version": "v3.2",
+ "seed": 20261115,
+ "base": "v3.1 mode1",
+ "files": {
+  "mode1/train.jsonl": {
+   "records": 2000,
+   "sha256": "e630889fc2594fa2a65801a6e2fe80ff763922acf0467d315bf4b015c5a7da51"
+  },
+  "mode1/dev.jsonl": {
+   "records": 122,
+   "sha256": "8ffd9692b63600f2acea461d468e22cd2b4ed6ce4db1e69e98b3b54cb63f2dc1"
+  },
+  "mode1/test.jsonl": {
+   "records": 409,
+   "sha256": "b1f454c1af8fd7291842fd26d43de470c4c74be8641632b009c0f1b63693072e"
+  },
+  "mode1/gen_family.jsonl": {
+   "records": 100,
+   "sha256": "4eb4ae534429fe8d827efeeba932ec3f7be23ae65cd6ef9a334b31be34eaf1fb"
+  },
+  "mode1/gen_range.jsonl": {
+   "records": 100,
+   "sha256": "7e7253bb93881ce9d05c4154db581ba6303a3b89cefd4e44246073a8a4a13e19"
+  },
+  "mode1/watch_v3.jsonl": {
+   "records": 101,
+   "sha256": "76b341023121076ad7706bfc20461f1c1c03085c4597078265fffd356b28d594"
+  },
+  "mode1/watch_v2.jsonl": {
+   "records": 95,
+   "sha256": "503e3aefb550aa446e2d58e83bf0783fc14e4ef082a48ccdbf089516936eb75e"
+  }
+ },
+ "report": {
+  "changed": 33,
+  "changed_ids": [
+   "v31m1-00275",
+   "v31m1-00278",
+   "v31m1-00243",
+   "v31m1-00018",
+   "train-01688",
+   "train-01490",
+   "v31m1-00100",
+   "v31m1-00091",
+   "v31m1-00168",
+   "v31m1-00142",
+   "v31m1-00120",
+   "v31m1-00074",
+   "v31m1-00116",
+   "v31m1-00007",
+   "train-01711",
+   "train-02852",
+   "v31m1-00163",
+   "train-01262",
+   "v31m1-00167",
+   "train-02029",
+   "v31m1-00288",
+   "v31m1-00297",
+   "v31m1-00097",
+   "train-01069",
+   "v31m1-00051",
+   "v31m1-00101",
+   "train-00916",
+   "v31m1-00118",
+   "v31m1-00000",
+   "train-02497",
+   "v31m1-00232",
+   "v31m1-00138",
+   "train-00257"
+  ],
+  "sk_short": 65,
+  "share": 0.5
+ },
+ "frozen": "2026-11-15"
+}
