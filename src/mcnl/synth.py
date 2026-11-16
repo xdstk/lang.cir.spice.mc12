@@ -364,7 +364,16 @@ def design(top, spec, fixed=None, optional=()):
     fn = lambda p: forward(top, p)[1]  # noqa: E731
     f = spec.get("_f0") or spec["f"]
     best = None
-    for chosen in d["choose"](spec):
+    choices = list(d["choose"](spec))
+    if fixed:
+        # запасной вариант без перебора по ряду - только если перебор ничего не дал: номиналы пользователя могли забрать
+        # всю свободу, и перебираемый номинал оказывается тем, что надо найти (RL ФНЧ с заданным R и L = ?, 16.11.2026)
+        choices.append(None)
+    for chosen in choices:
+        if chosen is None:
+            if best is not None:
+                break
+            chosen = {}
         base = dict(chosen, **fixed)  # заданные пользователем номиналы важнее перебора
         unknown = [n for n in names if n not in base]
         if not unknown:
@@ -383,7 +392,10 @@ def design(top, spec, fixed=None, optional=()):
         # ошибка округления - по тому, что задал пользователь: у ФНЧ, ФВЧ 2-го порядка - по срезу -3 дБ, а не по f0
         et = dict({k: v for k, v in tg.items() if k != "f0"}, fc=spec["f"]) if spec.get("_by_fc") and "f0" in tg else tg
         rnd = round_to_series(top, p, et, keep=set(base))
-        err = max(abs(v) for v in _residuals(fn(rnd), et))
+        res = _residuals(fn(rnd), et)
+        if res is None:  # после округления к ряду величина не определена - вариант не годится
+            continue
+        err = max(abs(v) for v in res)
         rs = [v for k, v in p.items() if k[0] == "R"]
         outside = sum(1 for v in rs if abs(math.log10(v / r_pref)) > 1)
         key = (outside, round(err, 3), _cost(p, r_pref))

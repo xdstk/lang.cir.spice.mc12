@@ -126,6 +126,15 @@ class UserNetlist(unittest.TestCase):
         self.assertEqual({e["name"]: e["value"] for e in net if e["type"] == "C"}, {"C1": "22n", "C2": "10n"})
         check_dev(self, rep, 0.03, 0.05, 0.5)
 
+    def test_given_value_leaves_no_freedom(self):
+        # RL ФНЧ: R задан, L = ? - перебирать по ряду нечего, L находится из fc (раньше перебор L по ряду занимал
+        # неизвестное, и схема не решалась; найдено выборкой program, 16.11.2026)
+        rep = synth.run("V1 IN 0 DC 0\nL1 IN OUT ?\nR1 OUT 0 1k\n.SPEC type=LP fc=16k")
+        self.assertEqual((rep["route"], rep["topology"]), ("formula", "rl_lp"))
+        v = {e["name"]: e["value"] for e in canon.parse_netlist(rep["netlist"])[0]}
+        self.assertEqual((v["R1"], v["L1"]), ("1k", "10m"))
+        self.assertLess(abs(rep["deviation"]["fc"]), 0.03)
+
     def test_infeasible_given_values(self):
         rep = synth.run(self.SK.format(c1="10n", c2="10n") + ".SPEC type=LP fc=1k Q=0.707")  # при C1 = C2 Q <= 0,5
         self.assertIn("заданными номиналами", rep["error"])

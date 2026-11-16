@@ -70,6 +70,22 @@ def settings(run, r):
     ])
 
 
+def program_cell(mode):
+    """Запросы, которые программа показывает пользователю (справочник, «Примеры», «Правила»): новая модель должна
+    проходить их на 100% (src/mcnl/program_prompts.py, решение автора 16.11.2026)."""
+    return [
+        md(f"### 8в. Запросы программы, режим {mode}\nСправочник, меню «Примеры», вкладка «Правила» - около "
+           f"{'40' if mode == 1 else '20'} запросов, несколько минут. Проверка - локально: "
+           "`python src/mcnl/program_prompts.py --check program.jsonl`, нужно 100%."),
+        code(f"""
+import os
+A = f'--model {{MODEL}} --adapter {{OUT}}/adapter --format {{FORMAT}} --name {{RUN}} --instructions {{INSTR}}'
+if os.path.exists('data/program_prompts/program.jsonl'):
+    !python colab/predict.py {{A}} --records data/program_prompts/program.jsonl --mode {mode} --out {{OUT}}/program.jsonl
+"""),
+    ]
+
+
 def answers_rest(r):
     """Ячейки ответов на остальные выборки: у v2 - как раньше; у v3 - выборки v3, выборки v2 для сравнения,
     модель v2 на test v3 и итоговые llm_test, llm_test2."""
@@ -114,6 +130,7 @@ for s, path in LLM:
     if os.path.exists(path):
         !python colab/predict.py {A} --records {path} --out {OUT}/{s}.jsonl
 """),
+            *program_cell(1),
         ]
     if r.get("answers") == "v31_m2":
         return [
@@ -122,6 +139,7 @@ for s, path in LLM:
 A = f'--model {MODEL} --adapter {OUT}/adapter --format {FORMAT} --name {RUN} --instructions {INSTR}'
 !python colab/predict.py {A} --records {DATA}/test.jsonl --out {OUT}/test.jsonl
 """),
+            *program_cell(2),
         ]
     if r.get("data", "v2") == "v2":
         return [
