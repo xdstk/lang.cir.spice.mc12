@@ -1,4 +1,5 @@
 """Данные для окна программы (docs/gui_spec.md): подписи, карточки, геометрия АЧХ, замечания. Без запуска окна."""
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -39,6 +40,24 @@ class Data(unittest.TestCase):
         # спад глубже шкалы (80 дБ): кривая обрывается, а не ложится полкой на нижний край
         deep = gui.plot_geometry([10, 100, 1e3, 1e4], [0, 0, -120, -160], 400, 200)
         self.assertEqual([len(seg) for seg in deep["lines"]], [4])
+
+    def test_plot_two_curves(self):
+        # реальный ОУ: основная кривая задаёт шкалу, идеальная (also) рисуется в той же шкале и обрезается по ней
+        f = [10, 100, 1e3, 1e4, 1e5]
+        g = gui.plot_geometry(f, [0, 0, 0, -3, -20], 400, 200, also=(f, [0, 0, 0, 0, 40]))
+        self.assertEqual(g["lines"][0][1::2][:3], g["also_lines"][0][1::2][:3])  # совпадающие точки - на одной высоте
+        self.assertEqual(len(g["also_lines"][0]), 8)  # точка +40 дБ выше шкалы отброшена
+        self.assertEqual(gui.plot_geometry(f, [0] * 5, 400, 200)["also_lines"], [])
+        self.assertIn("TL071C", gui.plot_title({"opamp": "TL071C"}))
+        self.assertEqual(gui.freq_label(2e9), "2 ГГц")
+
+    def test_save_setting(self):
+        p = Path(__file__).resolve().parents[1] / "out" / "test_gui" / "settings.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text('{"adapter": "x"}', encoding="utf-8")
+        gui.save_setting("real_opamp", False, p)
+        self.assertEqual(json.loads(p.read_text(encoding="utf-8")), {"adapter": "x", "real_opamp": False})
+        self.assertTrue(gui.DEFAULTS["real_opamp"])
 
     def test_notes(self):
         rep = {"refused": {"code": "out_of_class", "reason": "транзистор"}, "parse_errors": ["строка 2"],

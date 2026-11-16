@@ -93,3 +93,84 @@ def sweep(elems, f_lo, f_hi, per_decade=200):
     f = [f_lo * 10 ** (i / per_decade) for i in range(nd + 1)]
     h = [response(elems, x) for x in f]
     return f, [20 * math.log10(abs(v)) if v else -400.0 for v in h], [math.degrees(cmath.phase(v)) for v in h]
+
+
+# Насыщение реального ОУ по постоянному току (чертёж с реальным ОУ, spice2cir.power). Пороги - умолчания модели OPA
+# уровня 3 при питании +-15 В: размах выхода VPS/VNS = +-13 В, смещение нуля VOFF = 1 мВ, ток короткого замыкания
+# IOSC = 20 мА (RM12 с. 728).
+SWING = 13.0
+OFFSET = 1e-3
+CURRENT = 0.02
+GMIN = 1e-12  # См, от каждого узла на землю, как GMIN в SPICE: узел за конденсаторами не повисает
+
+
+def dc_outputs(elems, offset=0.0, currents=False):
+    """Постоянные напряжения на выходах ОУ -> {имя ОУ: В} (currents=True - ещё {имя ОУ: ток выхода, А}).
+    Конденсатор - разрыв, катушка - перемычка, источники - своё DC, ОУ - ИНУН с усилением OPAMP_GAIN и смещением нуля
+    offset на входе."""
+    nodes = sorted({n for e in elems for n in e["nodes"]} - {"0"})
+    idx = {n: i for i, n in enumerate(nodes)}
+    branches = [e for e in elems if e["type"] in ("V", "L", "OPAMP")]
+    n = len(nodes) + len(branches)
+    A = [[0.0] * n for _ in range(n)]
+    b = [0.0] * n
+    for i in range(len(nodes)):
+        A[i][i] += GMIN
+
+    def branch(k, plus, minus):
+        for node, sg in ((plus, 1), (minus, -1)):
+            if node != "0":
+                A[idx[node]][k] += sg
+                A[k][idx[node]] += sg
+
+    k = len(nodes)
+    for e in elems:
+        t, nd = e["type"], e["nodes"]
+        if t == "R":
+            g = 1 / canon.parse_value(e["value"])
+            for p, q, sg in ((nd[0], nd[0], 1), (nd[1], nd[1], 1), (nd[0], nd[1], -1), (nd[1], nd[0], -1)):
+                if p != "0" and q != "0":
+                    A[idx[p]][idx[q]] += sg * g
+        elif t in ("V", "L"):  # катушка - источник 0 В
+            branch(k, nd[0], nd[1])
+            b[k] = canon.parse_value(e["value"]) if t == "V" else 0.0
+            k += 1
+        elif t == "OPAMP":  # V(out) = A (V+ - V- + offset)
+            plus, minus, out = nd
+            if out != "0":
+                A[idx[out]][k] += 1
+                A[k][idx[out]] += 1
+            for node, g in ((plus, -OPAMP_GAIN), (minus, OPAMP_GAIN)):
+                if node != "0":
+                    A[k][idx[node]] += g
+            b[k] = OPAMP_GAIN * offset
+            k += 1
+    x = _solve(A, b)
+    volts = {e["name"]: x[idx[e["nodes"][2]]].real if e["nodes"][2] != "0" else 0.0
+             for e in elems if e["type"] == "OPAMP"}
+    if not currents:
+        return volts
+    amps = {e["name"]: x[len(nodes) + j].real for j, e in enumerate(branches) if e["type"] == "OPAMP"}
+    return volts, amps
+
+
+def saturation(elems, swing=SWING, offset=OFFSET, current=CURRENT):
+    """ОУ, выход которого по постоянному току вышел бы за размах swing или ограничение тока current
+    -> [(имя, значение, причина)], пусто - насыщения нет. Причина "source" - постоянное напряжение источника, усиленное
+    схемой (значение - В); "offset" - смещение нуля без обратной связи по постоянному току (интегратор без резистора
+    в ОС и т. п., В); "current" - выходной ток больше тока короткого замыкания (низкоомная нагрузка, А)."""
+    if not any(e["type"] == "OPAMP" for e in elems):
+        return []
+    try:
+        (plain, amps), shifted = dc_outputs(elems, currents=True), dc_outputs(elems, offset)
+    except ZeroDivisionError:
+        return [(e["name"], math.inf, "offset") for e in elems if e["type"] == "OPAMP"]
+    out = []
+    for name, v in shifted.items():
+        if abs(plain[name]) > swing:
+            out.append((name, plain[name], "source"))
+        elif abs(v) > swing:
+            out.append((name, v, "offset"))
+        elif abs(amps[name]) > current:
+            out.append((name, abs(amps[name]), "current"))
+    return out

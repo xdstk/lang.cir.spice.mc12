@@ -11,8 +11,10 @@
 выводах, RM12 с. 45-46, 67). Узлы IN и OUT
 всегда подписаны: по их именам строятся анализ и график. На узел 0 ставится символ земли, направленный от
 элемента наружу; элементы, провода, метки и земли не перекрываются. ОУ - элемент Opamp с моделью OPAMP_IDEAL
-уровня 1: A = 1e6, R = ROUTAC + ROUTDC = 1 Ом (RM12 с. 728, 732), выводы питания не подключены
-(у уровня 1 они не влияют на передачу). Описания фигур и элементов - data/cir_templates.cir.
+уровня 1: A = 1e6, R = ROUTAC + ROUTDC = 1 Ом (RM12 с. 728, 732), выводы питания на земле
+(у уровня 1 они не влияют на передачу). opamp="TL071C" - реальный ОУ (power): модель OPA уровня 3 из библиотеки
+MC12, питание +-15 В - метки VCC, VEE на выводах и два источника под схемой (docs/mc12_pipeline.md, «Реальный ОУ на
+чертеже»). Описания фигур и элементов - data/cir_templates.cir.
 В схему кладутся текст с исходным нетлистом и анализ AC (диапазон обвязки bench) с графиком dB(V(OUT)).
 Файл - ASCII с CRLF (CLAUDE.md).
 """
@@ -32,7 +34,12 @@ except ImportError:  # запуск как скрипта
 ROOT = Path(__file__).resolve().parents[2]
 TEMPLATES = ROOT / "data" / "cir_templates.cir"
 OPAMP_MODEL = ".MODEL OPAMP_IDEAL OPA (LEVEL=1 A=1E6 ROUTAC=0.5 ROUTDC=0.5)"
-COMP = {"R": ("Resistor", "RESISTANCE"), "C": ("Capacitor", "CAPACITANCE"), "L": ("Inductor", "INDUCTANCE"),
+# Реальный ОУ на чертеже (power): модель OPA уровня 3 из библиотек MC12 (nsopamp.lbr, tiopamp.lbr подключены в
+# NOM.LIB), питание - два источника и метки цепей на выводах ОУ (одноимённые метки соединены, RM12 с. 46-47).
+SUPPLY = ("VCC", "VEE")
+SUPPLY_V = 15
+SUPPLY_PART = {"VCC": "VPOS", "VEE": "VNEG"}  # имя элемента не должно совпадать с узлом (предупреждение MC12)
+COMP ={"R": ("Resistor", "RESISTANCE"), "C": ("Capacitor", "CAPACITANCE"), "L": ("Inductor", "INDUCTANCE"),
         "V": ("Voltage Source", "VALUE"), "OPAMP": ("Opamp", "MODEL")}
 # выводы в шагах сетки при Rot=0 (data/cir_templates.cir): минус (0,0), плюс (6,0)
 TWO_PIN = {"minus": (0, 0), "plus": (6, 0)}
@@ -51,7 +58,9 @@ GROUND_LEN = 3
 ATTRS = {"h": ((18, 6), (18, 20)), "down": ((8, 11), (8, 25)), "up": ((8, -37), (8, -23)),
          "source": ((14, -37), (14, -23)), "opamp": ((76, 40), (76, 54)),
          # раскладка по пути сигнала: у перемычки над линией подписи сверху, у ОУ - справа от земли питания над ним
-         "hb": ((18, -34), (18, -20)), "opamp_t": ((44, -32), (44, -20)), "opamp_f": ((44, -80), (44, -68))}
+         "hb": ((18, -34), (18, -20)), "opamp_t": ((44, -32), (44, -20)), "opamp_f": ((44, -80), (44, -68)),
+         # реальный ОУ (power): справа от метки питания VCC или VEE над ним
+         "opamp_tp": ((60, -32), (60, -20)), "opamp_fp": ((60, -80), (60, -68))}
 # Раскладка по пути сигнала, шаги сетки: главная линия IN -> OUT на высоте 0; элементы на землю и боковые цепочки
 # висят под своим узлом (верхний вывод на HANG_TOP ниже линии, следующее звено цепочки - на HANG_DY ниже);
 # ОУ стоит в разрыве линии выходом на ней; делитель обратной связи - под ОУ на FB_Y; остальное - перемычки над линией.
@@ -101,7 +110,7 @@ def _text(lines, x, y):
 
 
 def _attr_texts(e):
-    value = OPAMP_MODEL.split()[1] if e["type"] == "OPAMP" else (
+    value = e.get("model", OPAMP_MODEL.split()[1]) if e["type"] == "OPAMP" else (
         _source_value(e) if e["type"] in "VI" else e["value"])
     return e["name"], value
 
@@ -157,6 +166,7 @@ def draw(placed, wires=True):
     """Дорисовывает к раскладке земли, провода и метки -> Drawing. wires=False - только метки, как раньше."""
     grounds, gwires, labels = [], [], []
     nets = {}  # цепь -> [(номер элемента, вывод, точка метки, направление)]
+    supply = []  # выводы цепей питания (power): не разводятся, метка на каждом выводе
     for i, p in enumerate(placed):
         for node, pin, (end, d) in zip(p.e["nodes"], p.pins, p.ends):
             if node == "0":
@@ -164,6 +174,11 @@ def draw(placed, wires=True):
                 grounds.append((gpt, gd, i))
                 if gpt != pin:
                     gwires.append((pin, gpt, "0"))
+            elif node in SUPPLY:
+                pt = _supply_label(pin, end, d)
+                supply.append((node, pt, i))
+                if pt != pin:
+                    gwires.append((pin, pt, node))
             else:
                 nets.setdefault(node, []).append((i, pin, end, d))
     pins = {pin for p in placed for pin in p.pins}
@@ -184,6 +199,9 @@ def draw(placed, wires=True):
         blocked |= _points_in(r, 0.3 if kind == "body" else 0.45)
     for gpt, gd, _ in grounds:
         blocked |= _points_in(_ground_box(gpt, gd), 0.3)
+    for net, pt, i in supply:
+        blocked |= _points_in(_text_box(pt[0], pt[1], net), 0.45) - {pt}
+        labels.append((net, pt, i))
     named, under = {}, {}
     spec = getattr(placed, "labels", {})  # раскладка по пути сигнала ставит метки сама
     for net in NAMED:
@@ -578,15 +596,21 @@ def _frame(lay):
                 grounds.append((gpt, gd, i))
                 if gpt != pin:
                     wires.append((pin, gpt, "0"))
-    for net, (i, pt, stub) in lay.labels.items():
+            elif node in SUPPLY:
+                pt = _supply_label(pin, end, d)
+                labels.append((node, pt, i))
+                if pt != pin:
+                    wires.append((pin, pt, node))
+    for net, (i, pt, stub) in getattr(lay, "labels", {}).items():
         wires += [(a, b, net) for a, b in stub]
         labels.append((net, pt, i))
     return Drawing(lay, wires, labels, grounds, set())
 
 
-def layout(elems):
+def layout(elems, opamp=None):
     """-> [Placed]: элемент, точка привязки и поворот, выводы в порядке nodes, точки меток. Шаги сетки.
-    Сначала раскладка по пути сигнала (с растущими промежутками, пока что-то накладывается), иначе - сетка."""
+    Сначала раскладка по пути сигнала (с растущими промежутками, пока что-то накладывается), иначе - сетка.
+    opamp - модель реального ОУ: питание по power."""
     for spread in (0, 2, 4):
         try:
             lay = _flow_layout(elems, spread)
@@ -596,10 +620,40 @@ def layout(elems):
             break
         b = [r for _, _, r in _element_boxes(lay)]
         lay = _shifted(lay, 4 - math.floor(min(r[0] for r in b)), 8 - math.floor(min(r[1] for r in b)))
+        if opamp:
+            lay = power(lay, opamp)
         pins = [q for p in lay for q in p.pins]
         if len(set(pins)) == len(pins) and not overlaps(_frame(lay)):
             return lay
-    return _grid_layout(elems)
+    lay = _grid_layout(elems)
+    return power(lay, opamp) if opamp else lay
+
+
+def _supply_label(pin, end, d):
+    """Точка метки питания: на выводе, если метка (вправо-вверх от точки) не ложится на ОУ, иначе ниже на отводе."""
+    return pin if d in ("right", "up") else (pin[0], pin[1] + STUB_DOWN)
+
+
+def power(lay, model):
+    """Реальный ОУ: модель model, выводы питания - на цепи VCC и VEE (метки на выводах), под схемой слева - источники
+    VCC = +15 В и VEE = -15 В относительно земли. Подписи ОУ сдвигаются вправо, мимо метки питания над ним."""
+    out = Layout()
+    out.labels = getattr(lay, "labels", {})
+    for p in lay:
+        if p.e["type"] != "OPAMP":
+            out.append(p)
+            continue
+        e = dict(p.e, nodes=list(p.e["nodes"][:3]) + ["VEE", "VCC"], model=model)
+        out.append(p._replace(e=e, kind={"opamp_t": "opamp_tp", "opamp_f": "opamp_fp"}.get(p.kind, p.kind)))
+    b = [r for *_, r in boxes(_frame(out))]
+    x = math.floor(min(r[0] for r in b)) + 2
+    y = math.ceil(max(r[3] for r in b)) + 4  # верхний вывод источника, над ним - метка
+    for name in SUPPLY:
+        e = {"type": "V", "name": SUPPLY_PART[name], "nodes": [name, "0"],
+             "value": str(SUPPLY_V if name == "VCC" else -SUPPLY_V)}
+        out.append(Placed(e, x, y + 6, ROT_UP, [(x, y), (x, y + 6)], "source", [((x, y), "up"), ((x, y + 6), "down")]))
+        x += _hang_width(e) + 4
+    return out
 
 
 def _grid_layout(elems):
@@ -636,7 +690,9 @@ def _templates():
     return [b.strip() for b in re.split(r"\n(?=\[)", text) if b.startswith(("[shapedef]", "[compdef]"))]
 
 
-def build(netlist, f_char=None, title="spice2cir", wires=True):
+def build(netlist, f_char=None, title="spice2cir", wires=True, opamp=None, numeric=False):
+    """Нетлист -> текст .CIR. opamp - модель реального ОУ (power) вместо идеального; numeric - числовой вывод АЧХ и ФЧХ
+    в файл (.ANO) для расчёта в пакетном режиме: так программа читает результат самого чертежа."""
     elems, err = canon.parse_netlist(netlist)
     if err:
         raise ValueError("; ".join(err))
@@ -646,8 +702,15 @@ def build(netlist, f_char=None, title="spice2cir", wires=True):
             "Shape Version=10.01\nScreen=1920,1200\nMCAPVersion=10.0.4.0\nKey ID=0\nNLCnt=0\nTXCnt=0")
     parts = [head] + _templates()
     parts.append("[Circuit]\nSpiceType=AMBIGUOUS\nShow Nodes=False\nShow Attribute Text=True\nShow Grid Text=True")
-    drawing = draw(layout(elems), wires)
-    note = [f"{title}: netlist (spice2cir)"] + netlist.strip().splitlines() + ["AC analysis: Alt+2"]
+    opamp = opamp if any(e["type"] == "OPAMP" for e in elems) else None
+    if opamp and (any(n in SUPPLY for e in elems for n in e["nodes"])
+                  or any(e["name"].upper() in SUPPLY_PART.values() for e in elems)):
+        raise ValueError(f"имена {', '.join(SUPPLY)}, {', '.join(SUPPLY_PART.values())} заняты питанием реального ОУ")
+    drawing = draw(layout(elems, opamp), wires)
+    note = [f"{title}: netlist (spice2cir)"] + netlist.strip().splitlines()
+    if opamp:
+        note.append(f"Opamp {opamp} instead of ideal, supply VCC = +{SUPPLY_V} V, VEE = -{SUPPLY_V} V")
+    note.append("AC analysis: Alt+2")
     scale = view_scale(drawing, note)
     for p in drawing.placed:
         e = p.e
@@ -668,14 +731,18 @@ def build(netlist, f_char=None, title="spice2cir", wires=True):
                                         ("Info", "Type=Info\n"))):
         zoom = "".join(f"\nScale {k}={scale!r}" for k in range(4)) if i == 0 else ""
         parts.append(f"[Page]\nIndex={i}\nSection=0\n{extra}Print={'True' if i == 0 else 'False'}\nEnable=True\nName={pname}{zoom}")
-    if any(e["type"] == "OPAMP" for e in elems):
+    if any(e["type"] == "OPAMP" for e in elems) and not opamp:
         # после [Section]/[Page], как в образцах MC12: текстовая область ссылается на страницу Page=1
         parts.append(text_area([OPAMP_MODEL]))
     parts.append(f"[Limits]\nAnalysis=AC\nFRange={canon.format_value(fh)},{canon.format_value(fl)}\n"
                  f"NPts={int(round(bench.POINTS_PER_DECADE * 6)) + 1}\nTemp=27\nMaxChng=5\nNInput=NONE\nNOutput=2\n"
                  "Sweep type=Log\nStateVar=Zero\nRunOption=Normal\nTemperature Type=Linear\nAccumulate Plots=False")
-    parts.append("[WaveForm]\nAnalysis=AC\nPlt=1\nAliasID=1\nXExp=F\nYExp=dB(V(OUT))\nXRng=FMAX,FMIN\n"
-                 "YRng=80,-100\nOptions=LINEARY\nEnable=Enable")
+    wave = ("[WaveForm]\nAnalysis=AC\nPlt=1\nAliasID=1\nXExp=F\nYExp=dB(V(OUT))\nXRng=FMAX,FMIN\n"
+            "YRng=80,-100\nOptions=LINEARY\nEnable=Enable")
+    if numeric:  # фаза - вторым графиком, оба - в числовой вывод
+        phase = wave.replace("Plt=1", "Plt=2").replace("AliasID=1", "AliasID=2").replace("dB(V(OUT))", "PH(V(OUT))")
+        wave = (wave + "\n\n" + phase).replace("Options=LINEARY", "Options=OUTPUT,LINEARY")
+    parts.append(wave)
     text = "\r\n\r\n".join(p.replace("\n", "\r\n") for p in parts) + "\r\n"
     text.encode("ascii")  # кириллица в файлах для MC12 недопустима
     return text

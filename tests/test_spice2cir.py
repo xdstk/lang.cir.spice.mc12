@@ -17,6 +17,7 @@ from mcnl import bench, canon, cir2spice, iso, mc12run, measure, spice2cir  # no
 
 PILOT = [json.loads(l) for l in (ROOT / "data" / "pilot" / "refs.jsonl").read_text(encoding="utf-8").splitlines()]
 TEST = [json.loads(l) for l in (ROOT / "data" / "dataset" / "v1" / "test.jsonl").read_text(encoding="utf-8").splitlines()]
+RC = "V1 IN 0 DC 0\nR1 IN OUT 1k\nC1 OUT 0 100n\n"
 
 
 def elements_of(spice):
@@ -195,6 +196,37 @@ class Build(unittest.TestCase):
         with self.assertRaises(ValueError):
             spice2cir.build("I1 IN 0 DC 0\nR1 IN 0 1k\n")
 
+    def test_real_opamp_drawing(self):
+        # реальный ОУ (power, решение автора 16.11.2026): выводы питания - на метки VCC и VEE, под схемой - источники
+        # +15 и -15 В; ничего не накладывается, связность по строгим правилам MC12
+        rows = [r for r in PILOT + TEST if "OPAMP" in r["netlist"]]
+        self.assertGreater(len(rows), 10)
+        for r in rows:
+            with self.subTest(ref=r["id"]):
+                lay = spice2cir.layout(canon.parse_netlist(r["netlist"])[0], "TL071C")
+                d = spice2cir.draw(lay)
+                self.assertEqual((spice2cir.overlaps(d), strict_problems(d)), ([], []))
+                ops = [p.e for p in lay if p.e["type"] == "OPAMP"]
+                self.assertTrue(all(e["nodes"][3:] == ["VEE", "VCC"] and e["model"] == "TL071C" for e in ops))
+                src = {p.e["name"]: (p.e["nodes"], p.e["value"]) for p in lay if p.e["name"] in ("VPOS", "VNEG")}
+                self.assertEqual(src, {"VPOS": (["VCC", "0"], "15"), "VNEG": (["VEE", "0"], "-15")})
+                self.assertEqual(sum(t == "VCC" for t, _, _ in d.labels), len(ops) + 1)
+        text = spice2cir.build(PILOT[12]["netlist"], PILOT[12]["f_char"], opamp="TL071C")
+        text.encode("ascii")
+        self.assertIn("V=TL071C", text)
+        self.assertNotIn("[Text Area]", text)  # модель - из библиотеки MC12, текстовая область не нужна
+        self.assertNotIn("TL071C", spice2cir.build(PILOT[12]["netlist"], PILOT[12]["f_char"]))  # по умолчанию - как было
+        self.assertNotIn("VPOS", spice2cir.build(RC, opamp="TL071C"))  # без ОУ питание не рисуется
+        with self.assertRaises(ValueError):  # узел VCC в схеме пользователя слился бы с питанием
+            spice2cir.build("V1 IN 0 DC 0\nR1 IN VCC 1k\nX1 VCC OUT OUT OPAMP_IDEAL\n", opamp="TL071C")
+
+    def test_numeric_output(self):
+        text = spice2cir.build(RC, 1591.5, numeric=True)
+        self.assertEqual(text.count("[WaveForm]"), 2)
+        self.assertEqual(text.count("Options=OUTPUT,LINEARY"), 2)
+        self.assertIn("YExp=PH(V(OUT))", text)
+        self.assertNotIn("OUTPUT", spice2cir.build(RC, 1591.5))
+
 
 def mc12_available():
     try:
@@ -230,11 +262,7 @@ class InMC12(unittest.TestCase):
         cases = [r for r in PILOT if r["id"] in ids] + [r for r in TEST if r["level"] == "L3"][:2]
         pairs = []
         for i, r in enumerate(cases):
-            text = spice2cir.build(r["netlist"], r["f_char"])
-            wave = text[text.index("[WaveForm]"):]  # числовой вывод (OUTPUT) и фаза - только для сравнения
-            phase = wave.replace("Plt=1", "Plt=2").replace("AliasID=1", "AliasID=2").replace("dB(V(OUT))", "PH(V(OUT))")
-            text = text.replace(wave, (wave + "\r\n" + phase).replace("Options=LINEARY", "Options=OUTPUT,LINEARY"))
-            spice2cir.write(work / f"w{i}.cir", text)
+            spice2cir.write(work / f"w{i}.cir", spice2cir.build(r["netlist"], r["f_char"], numeric=True))
             bench.write(work / f"r{i}.ckt", bench.build(canon.parse_netlist(r["netlist"])[0], r["f_char"], f"r{i}"))
             pairs.append((r["id"], work / f"w{i}.cir", work / f"r{i}.ckt"))
         res = {Path(x["ckt"]).name: x for x in
@@ -245,6 +273,29 @@ class InMC12(unittest.TestCase):
                 ok, diff = measure.curve_match(measure.read_curve(res[ref.name]["output"]),
                                                measure.read_curve(res[w.name]["output"]))
                 self.assertTrue(ok, diff)
+
+    def test_real_opamp_in_mc12(self):
+        # чертёж с TL071C (модель OPA уровня 3 из tiopamp.lbr) MC12 загружает и считает без сообщений; до f_хар АЧХ
+        # совпадает с идеальным ОУ (16.11.2026: не больше 0,12 дБ у всех 11 пилотных схем с ОУ), выше - полоса ОУ
+        work = ROOT / "out" / "test_spice2cir_real"
+        shutil.rmtree(work, ignore_errors=True)
+        work.mkdir(parents=True)
+        rows = [r for r in PILOT if "OPAMP" in r["netlist"]]
+        paths = []
+        for i, r in enumerate(rows):
+            spice2cir.write(work / f"w{i}.cir", spice2cir.build(r["netlist"], r["f_char"], opamp="TL071C", numeric=True))
+            bench.write(work / f"r{i}.ckt", bench.build(canon.parse_netlist(r["netlist"])[0], r["f_char"], f"r{i}"))
+            paths += [work / f"w{i}.cir", work / f"r{i}.ckt"]
+        res = {Path(x["ckt"]).name: x for x in mc12run.run(paths, analyses=["A"], timeout=300)}
+        for i, r in enumerate(rows):
+            with self.subTest(ref=r["id"]):
+                w, ref = res[f"w{i}.cir"], res[f"r{i}.ckt"]
+                self.assertTrue(w["ok"] and ref["ok"], (w, ref))
+                self.assertEqual(w["messages"], [])
+                fa, a, _ = measure.read_curve(ref["output"])
+                _, b, _ = measure.read_curve(w["output"])
+                lim = r["f_char"] or 1e4
+                self.assertLess(max(abs(x - y) for f, x, y in zip(fa, a, b) if f <= lim), 0.2)
 
 
 if __name__ == "__main__":

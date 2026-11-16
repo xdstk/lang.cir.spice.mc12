@@ -30,6 +30,26 @@ class Mna(unittest.TestCase):
         fc = 1 / (2 * math.pi * 1e-4)
         self.assertAlmostEqual(abs(mna.response(e, fc)), 1 / math.sqrt(2), places=12)
 
+    def test_dc_saturation(self):
+        # насыщение реального ОУ по постоянному току (app, чертёж с TL071C): совпало с MC12 на 185 схемах test v2
+        def sat(net):
+            return mna.saturation(canon.parse_netlist(net)[0])
+        self.assertEqual(sat("V1 IN 0 DC 1\nR1 IN N1 10k\nR2 N1 OUT 100k\nX1 0 N1 OUT OPAMP_IDEAL\n"), [])  # -10 В
+        (name, v, why), = sat("V1 IN 0 DC 1\nR1 N1 0 1k\nR2 N1 OUT 19k\nX1 IN N1 OUT OPAMP_IDEAL\n")
+        self.assertEqual((name, why), ("X1", "source"))
+        self.assertAlmostEqual(v, 20, delta=0.01)
+        # интегратор: без резистора в ОС смещение нуля уводит выход за питание, с резистором 1 МОм - нет
+        self.assertEqual(sat("V1 IN 0 DC 0\nR1 IN N1 10k\nC1 N1 OUT 100n\nX1 0 N1 OUT OPAMP_IDEAL\n")[0][2], "offset")
+        self.assertEqual(sat("V1 IN 0 DC 0\nR1 IN N1 10k\nR2 N1 OUT 1000k\nC1 N1 OUT 100n\n"
+                             "X1 0 N1 OUT OPAMP_IDEAL\n"), [])
+        # 2,5 В на 100 Ом: выход отдаёт 25 мА - больше тока короткого замыкания модели (20 мА); test-00058 v2
+        self.assertEqual(sat("V1 IN 0 DC 2.5\nR1 IN N1 100\nR2 N1 OUT 121.9\nC1 N1 OUT 2.2n\n"
+                             "X1 0 N1 OUT OPAMP_IDEAL\n")[0][2], "current")
+        # катушка по постоянному току - перемычка, конденсатор - разрыв
+        e = canon.parse_netlist("V1 IN 0 DC 2\nL1 IN N1 1m\nC1 N1 0 1u\nR1 N1 0 1k\nX1 N1 OUT OUT OPAMP_IDEAL\n")[0]
+        self.assertAlmostEqual(mna.dc_outputs(e)["X1"], 2, places=4)
+        self.assertEqual(sat("V1 IN 0 DC 0\nR1 IN OUT 1k\n"), [])  # без ОУ
+
 
 class FormulasVsNodal(unittest.TestCase):
     def test_all_pilot_topologies(self):

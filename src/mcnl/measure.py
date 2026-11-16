@@ -173,14 +173,20 @@ def measure(f, db, ph=None):
     return res
 
 
-def from_output(path):
+def from_output(path, f_max=None):
+    """Измерения по выводу MC12. f_max - верхняя граница частот: у реального ОУ выше его полосы АЧХ спадает, и ФВЧ
+    без границы мерился бы по уровню на краю диапазона (app.run берёт 10 f_хар)."""
     o = mcout.read(path)
     ph = None
     try:
         ph = mcout.column(o, "PH(V(OUT))")
     except KeyError:
         pass
-    return measure(mcout.column(o, "F"), mcout.column(o, "DB(V(OUT))"), ph)
+    f, db = mcout.column(o, "F"), mcout.column(o, "DB(V(OUT))")
+    if f_max:
+        k = sum(1 for x in f if x is not None and x <= f_max * (1 + 1e-9))
+        f, db, ph = f[:k], db[:k], (ph[:k] if ph else ph)
+    return measure(f, db, ph)
 
 
 def read_curve(path):

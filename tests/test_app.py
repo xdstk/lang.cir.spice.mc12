@@ -12,10 +12,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from mcnl import app, canon, evaluate, iso, mc12run, translators  # noqa: E402
+from mcnl import app, canon, evaluate, iso, mc12run, measure, translators  # noqa: E402
 
 TEST = [json.loads(l) for l in (ROOT / "data" / "dataset" / "v1" / "test.jsonl").read_text(encoding="utf-8").splitlines()]
 RC = "V1 IN 0 DC 0\nR1 IN OUT 1k\nC1 OUT 0 100n\n"
+SK_HP = "V1 IN 0 DC 0\nC1 IN N1 10n\nC2 N1 N2 10n\nR1 N1 OUT 1.1k\nR2 N2 0 2.2k\nX1 N2 OUT OUT OPAMP_IDEAL\n"
 
 
 class Plugins(unittest.TestCase):
@@ -131,6 +132,37 @@ class App(unittest.TestCase):
                       name="div", mc12=False)
         self.assertIsNone(rep["f_char"])
 
+    def test_fchar_of_integrator_and_differentiator(self):
+        # полосы нет: рабочая точка - частота единичного усиления 1/(2 pi R C), как в датасете (раньше - край сетки)
+        f_u = 1 / (2 * math.pi * 10e3 * 100e-9)
+        for net in ("V1 IN 0 DC 0\nR1 IN N1 10k\nC1 N1 OUT 100n\nX1 0 N1 OUT OPAMP_IDEAL\n",
+                    "V1 IN 0 DC 0\nC1 IN N1 100n\nR1 N1 OUT 10k\nX1 0 N1 OUT OPAMP_IDEAL\n"):
+            with self.subTest(net=net):
+                self.assertAlmostEqual(app.characteristic_frequency(canon.parse_netlist(net)[0]) / f_u, 1, delta=0.02)
+
+    def test_card_band(self):
+        self.assertEqual(app.card_band({"type": "HP", "fc": 1e3}), 1e4)
+        self.assertAlmostEqual(app.card_band({"type": "BP", "f0": 1e3, "Q": 1.0}), 1e4 * (math.sqrt(1.25) + 0.5))
+        self.assertIsNone(app.card_band({"type": "flat"}))
+        self.assertIsNone(app.card_band(None))
+
+    def test_real_opamp_offline(self):
+        out = ROOT / "out" / "test_app"
+        rep = app.run(netlist=SK_HP, outdir=out, name="sk_real_off", mc12=False, opamp=app.OPAMP_REAL)
+        self.assertEqual(rep["opamp"], "TL071C")
+        self.assertIn("V=TL071C", Path(rep["cir"]).read_text(encoding="ascii"))
+        # усиление 20 при DC 1 В: выход по постоянному току +20 В - чертёж с идеальным ОУ и замечание
+        rep = app.run(netlist="V1 IN 0 DC 1\nR1 N1 0 1k\nR2 N1 OUT 19k\nX1 IN N1 OUT OPAMP_IDEAL\n", outdir=out,
+                      name="sat_off", mc12=False, opamp=app.OPAMP_REAL)
+        self.assertIsNone(rep["opamp"])
+        self.assertNotIn("TL071C", Path(rep["cir"]).read_text(encoding="ascii"))
+        self.assertTrue(any("около +20 В" in n for n in rep["notes"]), rep["notes"])
+        rep = app.run(netlist="V1 IN 0 DC 0\nR1 IN N1 10k\nC1 N1 OUT 100n\nX1 0 N1 OUT OPAMP_IDEAL\n", outdir=out,
+                      name="int_off", mc12=False, opamp=app.OPAMP_REAL)
+        self.assertTrue(any("нет обратной связи по постоянному току" in n for n in rep["notes"]), rep["notes"])
+        rep = app.run(netlist=RC, outdir=out, name="rc_real_off", mc12=False, opamp=app.OPAMP_REAL)
+        self.assertEqual((rep["opamp"], rep["notes"]), (None, []))  # без ОУ - ни питания, ни замечаний
+
 
 def mc12_available():
     try:
@@ -162,6 +194,24 @@ class WithMC12(unittest.TestCase):
         rep = app.run("RL ФНЧ: катушка 10 мГн от входа к выходу, резистор 1 кОм с выхода на землю", Fixed(),
                       outdir=ROOT / "out" / "test_app", name="rl_ok")
         self.assertFalse(any("в запросе назван" in n for n in rep["notes"]), rep["notes"])
+
+    def test_real_opamp_pipeline(self):
+        """Чертёж с TL071C: один запуск MC12 считает обвязку (идеальный ОУ) и сам чертёж; карточки - по чертежу до
+        10 fc, где ФВЧ ещё не упирается в полосу ОУ (без границы fc мерился бы по краю диапазона: 2,75 кГц)."""
+        rep = app.run(netlist=SK_HP, outdir=ROOT / "out" / "test_app", name="sk_real", opamp=app.OPAMP_REAL)
+        self.assertTrue(rep["run"]["ok"] and rep["run_real"]["ok"], rep)
+        fc = 1 / (2 * math.pi * math.sqrt(1.1e3 * 2.2e3) * 10e-9)
+        self.assertEqual((rep["measured"]["type"], rep["measured_ideal"]["type"]), ("HP", "HP"))
+        self.assertAlmostEqual(rep["measured"]["fc"] / fc, 1, delta=0.01)
+        self.assertAlmostEqual(rep["measured"]["Q"], 0.707, delta=0.01)
+        self.assertEqual(rep["notes"], [])
+        f, db, _ = measure.read_curve(rep["run_real"]["output"])
+        self.assertLess(db[-1], -10)  # у 10 МГц полоса TL071 уже кончилась - это видно на графике
+        # дифференциатор с реальным ОУ звенит (подъём около sqrt(f_u * GBW)): другой вид АЧХ - замечание
+        rep = app.run(netlist="V1 IN 0 DC 0\nC1 IN N1 100n\nR1 N1 OUT 10k\nX1 0 N1 OUT OPAMP_IDEAL\n",
+                      outdir=ROOT / "out" / "test_app", name="diff_real", opamp=app.OPAMP_REAL)
+        self.assertEqual(rep["measured"]["type"], "BP")
+        self.assertTrue(any("сказывается конечная полоса" in n for n in rep["notes"]), rep["notes"])
 
     def test_evaluate_subset(self):
         out = ROOT / "out" / "test_app" / "eval"

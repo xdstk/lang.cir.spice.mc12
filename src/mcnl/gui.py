@@ -6,7 +6,7 @@
 
 Окно - оболочка над app.run: своей логики схем здесь нет. Модель и MC12 работают в фоновом потоке,
 результат приходит в главный поток через очередь. Рабочая папка - out/gui (обычная папка: MC12 не видит
-перенаправленные папки приложения Claude). Настройки (пути к модели) - out/gui/settings.json.
+перенаправленные папки приложения Claude). Настройки (пути к модели, реальный ОУ) - out/gui/settings.json.
 """
 import json
 import math
@@ -27,7 +27,8 @@ from mcnl import app, canon, measure, mc12run, translators  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "out" / "gui"
-DEFAULTS = {"base": "Qwen/Qwen3.5-4B", "adapter": str(ROOT / "out" / "q35_4b" / "adapter")}
+DEFAULTS = {"base": "Qwen/Qwen3.5-4B", "adapter": str(ROOT / "out" / "q35_4b" / "adapter"),
+            "real_opamp": True}  # реальный ОУ на чертеже по умолчанию (решение автора 16.11.2026)
 QWEN, BASELINE = "Qwen3.5-4B (локально)", "baseline (проверка окна)"
 KIND = {"LP": "ФНЧ", "HP": "ФВЧ", "BP": "полосовой", "BS": "режекторный", "flat": "без частотной зависимости"}
 EXAMPLE = "ФНЧ Саллена-Ки на повторителе: R1 10 кОм, R2 10 кОм, C1 (ОС) 22 нФ, C2 (земля) 10 нФ; сигнал на вход"
@@ -56,7 +57,7 @@ EXAMPLES = [
 RULES = [
     ("h", "Что умеет программа"),
     ("p", "Пассивные схемы из резисторов, конденсаторов и катушек: делители, RC, RL и RLC-фильтры, цепочки звеньев."),
-    ("p", "Схемы на идеальных операционных усилителях: усилители, активные фильтры, каскады из 2-3 звеньев."),
+    ("p", "Схемы на операционных усилителях: усилители, активные фильтры, каскады из 2-3 звеньев."),
     ("p", "Один источник сигнала между входом и землёй. Программа считает АЧХ в Micro-Cap 12 и строит чертёж схемы."),
     ("h", "Как писать запрос"),
     ("p", "Назовите каждый элемент и его номинал с единицами: 10 кОм, 4,7 кОм, 100 нФ, 22 мкФ, 3,3 мГн."),
@@ -64,7 +65,8 @@ RULES = [
     ("p", "Вместо соединений можно назвать типовую схему (инвертирующий усилитель, ФНЧ Саллена-Ки, фильтр Рауха) "
           "и дать номиналы по ролям: «резистор обратной связи 47 кОм»."),
     ("p", "Если после схемы добавлены элементы, укажите, откуда снимать выход: «выход за ним» или «выход остаётся на месте»."),
-    ("p", "Питание ОУ указывать не нужно: усилитель идеальный."),
+    ("p", "Питание ОУ указывать не нужно: на чертеже программа ставит ОУ TL071 с питанием ±15 В, без флажка "
+          "«Реальный ОУ» - идеальный."),
     ("p", "Примеры - кнопка «В запрос» переносит пример на вкладку «Схема»:"),
     ("ex", "R1 10 кОм от входа к точке 1, C1 100 нФ от точки 1 на землю, R2 22 кОм от точки 1 к выходу, "
            "C2 10 нФ с выхода на землю; сигнал на вход"),
@@ -81,6 +83,10 @@ RULES = [
     ("p", "Проверьте нетлист справа: его можно поправить и нажать «Пересчитать нетлист» - модель при этом не вызывается."),
     ("p", "Замечания под кнопками подскажут, если элемент висит в воздухе или выход ни к чему не подключён."),
     ("p", "«Открыть в MC12» показывает чертёж схемы в Micro-Cap 12."),
+    ("p", "С реальным ОУ на графике две АЧХ: сплошная - чертежа с TL071, пунктир - с идеальным ОУ. Расходятся они на "
+          "высоких частотах, где у TL071 кончается полоса (около 3 МГц на единичном усилении)."),
+    ("p", "Если реальный ОУ насытился бы (большое постоянное напряжение на входе, интегратор без резистора в обратной "
+          "связи), чертёж остаётся с идеальным ОУ, а замечание объясняет почему."),
 ]
 
 
@@ -90,7 +96,7 @@ def freq_label(f):
     """12.3 -> «12,3 Гц», 1530 -> «1,53 кГц»."""
     if f is None:
         return "-"
-    for scale, unit in ((1e6, "МГц"), (1e3, "кГц"), (1, "Гц")):
+    for scale, unit in ((1e9, "ГГц"), (1e6, "МГц"), (1e3, "кГц"), (1, "Гц")):
         if abs(f) >= scale or scale == 1:
             return f"{f / scale:.3g} {unit}".replace(".", ",")
     return "-"
@@ -114,18 +120,27 @@ def cards(m):
             ("Q", "-" if q is None else f"{q:.2g}".replace(".", ","))]
 
 
-def plot_geometry(f, db, width, height, pad=(42, 10, 10, 24), span_db=80):
+PLOT_TITLE = "АЧХ (расчёт MC12)"
+
+
+def plot_title(rep):
+    """Подпись графика с двумя кривыми: что сплошная, что пунктир."""
+    return f"АЧХ (расчёт MC12): сплошная - чертёж с {rep.get('opamp')}, пунктир - идеальный ОУ"
+
+
+def plot_geometry(f, db, width, height, pad=(42, 10, 10, 24), span_db=80, also=None):
     """Точки АЧХ на холсте (логарифмическая ось частоты) и линии сетки.
     pad = (слева, сверху, справа, снизу). -> {"lines": [[x, y, ...], ...], "xgrid": [(x, подпись)], "ygrid": [(y, подпись)]}
     Ниже нижней границы шкалы (span_db от максимума) кривая обрывается, а не прижимается к краю: иначе
-    глубокий спад выглядел бы ложной полкой."""
+    глубокий спад выглядел бы ложной полкой. also = (f, db) - вторая кривая в том же масштабе ("also_lines")."""
     pts = [(fi, d) for fi, d in zip(f, db) if fi and fi > 0 and d is not None]
     if len(pts) < 2:
-        return {"lines": [], "xgrid": [], "ygrid": []}
+        return {"lines": [], "xgrid": [], "ygrid": [], "also_lines": []}
+    pts2 = [(fi, d) for fi, d in zip(*also) if fi and fi > 0 and d is not None] if also else []
     l, t, r, b = pad
     w, h = width - l - r, height - t - b
     x0, x1 = math.log10(pts[0][0]), math.log10(pts[-1][0])
-    top = math.ceil(max(d for _, d in pts) / 10) * 10 + 5
+    top = math.ceil(max(d for _, d in pts) / 10) * 10 + 5  # шкалу задаёт основная кривая, вторая обрезается
     bottom = max(min(d for _, d in pts), top - span_db)
     bottom = math.floor(bottom / 10) * 10
 
@@ -134,21 +149,23 @@ def plot_geometry(f, db, width, height, pad=(42, 10, 10, 24), span_db=80):
 
     def y(d):
         return t + (top - d) / ((top - bottom) or 1) * h
-    lines, cur = [], []
-    for fi, d in pts:
-        if d < bottom:
-            if len(cur) >= 4:
-                lines.append(cur)
-            cur = []
-            continue
-        cur += [round(x(fi), 1), round(y(d), 1)]
-    if len(cur) >= 4:
-        lines.append(cur)
+    def polylines(points):
+        lines, cur = [], []
+        for fi, d in points:
+            if not bottom <= d <= top or not x0 - 1e-9 <= math.log10(fi) <= x1 + 1e-9:
+                if len(cur) >= 4:
+                    lines.append(cur)
+                cur = []
+                continue
+            cur += [round(x(fi), 1), round(y(d), 1)]
+        if len(cur) >= 4:
+            lines.append(cur)
+        return lines
     xgrid = [(round(x(10 ** e), 1), freq_label(10 ** e))
              for e in range(math.ceil(x0), math.floor(x1) + 1)]
     step = 20 if top - bottom > 40 else 10
     ygrid = [(round(y(v), 1), f"{v}") for v in range(int(bottom), int(top) + 1) if v % step == 0]
-    return {"lines": lines, "xgrid": xgrid, "ygrid": ygrid, "x": x}
+    return {"lines": polylines(pts), "xgrid": xgrid, "ygrid": ygrid, "x": x, "also_lines": polylines(pts2)}
 
 
 def notes_of(rep):
@@ -202,6 +219,15 @@ def load_settings():
     if p.exists():
         s.update(json.loads(p.read_text(encoding="utf-8")))
     return s
+
+
+def save_setting(key, value, path=None):
+    """Одна настройка в out/gui/settings.json; остальные поля файла сохраняются."""
+    p = Path(path or OUT / "settings.json")
+    s = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+    s[key] = value
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(s, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
 # ---------------------------------------------------------------- окно
@@ -265,6 +291,9 @@ class Window:
         box = ttk.Combobox(row, textvariable=self.choice, values=[QWEN, BASELINE], state="readonly", width=30)
         box.pack(side="left", padx=8)
         box.bind("<<ComboboxSelected>>", lambda e: self._select_translator())
+        self.real_opamp = tk.BooleanVar(value=bool(self.settings.get("real_opamp")))
+        ttk.Checkbutton(row, text="Реальный ОУ (TL071, ±15 В)", variable=self.real_opamp,
+                        command=lambda: save_setting("real_opamp", self.real_opamp.get())).pack(side="left", padx=8)
         buttons = ttk.Frame(left)
         buttons.pack(fill="x", pady=(0, 8))
         self.b_build = ttk.Button(buttons, text="Построить", command=self.build)
@@ -293,7 +322,8 @@ class Window:
             ttk.Label(cell, textvariable=val, font=("Segoe UI", 12, "bold")).pack(anchor="w")
             self.card_vars.append((cap, val))
         self._show_cards(None)
-        ttk.Label(right, text="АЧХ (расчёт MC12)").pack(anchor="w")
+        self.plot_title = tk.StringVar(value=PLOT_TITLE)
+        ttk.Label(right, textvariable=self.plot_title).pack(anchor="w")
         self.canvas = tk.Canvas(right, height=260, background="white", highlightthickness=1,
                                 highlightbackground="#d3d1c7")
         self.canvas.pack(fill="both", expand=True, pady=(2, 0))
@@ -363,7 +393,7 @@ class Window:
         name = self.choice.get()
         wait = "" if name in self.translators else f" ({name} ещё загружается, запрос выполнится после загрузки)"
         self.status.set("Перевод и расчёт в MC12…" + wait)
-        self.tasks.put(("build", name, prompt))
+        self.tasks.put(("build", name, (prompt, self._opamp())))
 
     def recalc(self):
         text = self.netlist.get("1.0", "end").strip()
@@ -376,7 +406,11 @@ class Window:
             self.status.set("Нетлист не разобран")
             return
         self.status.set("Расчёт в MC12…")
-        self.tasks.put(("recalc", None, text))
+        self.tasks.put(("recalc", None, (text, self._opamp())))
+
+    def _opamp(self):
+        """Модель реального ОУ для чертежа или None; читается в главном потоке и уходит в задачу значением."""
+        return app.OPAMP_REAL if self.real_opamp.get() else None
 
     def open_mc12(self):
         cir = (self.rep or {}).get("cir")
@@ -404,12 +438,14 @@ class Window:
                     if tr is None:
                         raise RuntimeError(f"{name} не загружен")
                     t0 = time.time()
-                    rep = app.run(payload, tr, outdir=OUT, name=self._next_name())
+                    prompt, opamp = payload
+                    rep = app.run(prompt, tr, outdir=OUT, name=self._next_name(), opamp=opamp)
                     rep["seconds"] = time.time() - t0
                     self.results.put(("done", name, rep))
                 elif kind == "recalc":
                     t0 = time.time()
-                    rep = app.run(netlist=payload, outdir=OUT, name=self._next_name())
+                    text, opamp = payload
+                    rep = app.run(netlist=text, outdir=OUT, name=self._next_name(), opamp=opamp)
                     rep["seconds"] = time.time() - t0
                     self.results.put(("done", None, rep))
             except Exception as err:  # noqa: BLE001 - ошибка показывается в окне, поток живёт дальше
@@ -490,14 +526,20 @@ class Window:
     def _draw_plot(self):
         c = self.canvas
         c.delete("all")
-        out = ((self.rep or {}).get("run") or {}).get("output")
+        rep = self.rep or {}
+        ideal = (rep.get("run") or {}).get("output")
+        real = (rep.get("run_real") or {}).get("output")
+        real = real if real and Path(real).exists() else None
+        out = real or ideal
         if not out or not Path(out).exists():
             c.create_text(c.winfo_width() / 2, c.winfo_height() / 2, text="Здесь появится АЧХ", fill="#888780")
             return
         f, db, _ = measure.read_curve(out)
+        also = measure.read_curve(ideal)[:2] if real and ideal and Path(ideal).exists() else None
+        self.plot_title.set(plot_title(rep) if also else PLOT_TITLE)
         w, h = c.winfo_width(), c.winfo_height()
         pad = tuple(int(v * self.k) for v in (42, 10, 10, 24))
-        g = plot_geometry(f, db, w, h, pad)
+        g = plot_geometry(f, db, w, h, pad, also=also)
         for x, lab in g["xgrid"]:
             c.create_line(x, pad[1], x, h - pad[3], fill="#eeede8")
             edge = x > w - pad[2] - 30 * self.k  # подпись у правого края - влево от линии, чтобы не обрезалась
@@ -514,6 +556,8 @@ class Window:
             c.create_line(x, pad[1], x, h - pad[3], fill="#888780", dash=(3, 3))
         for line in g["lines"]:
             c.create_line(*line, fill="#185fa5", width=2)
+        for line in g["also_lines"]:  # идеальный ОУ - пунктиром поверх: там, где кривые совпадают, видны обе
+            c.create_line(*line, fill="#5f5e5a", width=1, dash=(4, 3))
 
 
 def dpi_aware():
