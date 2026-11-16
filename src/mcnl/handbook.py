@@ -4,20 +4,17 @@
 Статья описывает тип цепи в общем виде (решение автора 16.11.2026: «менее конкретно, более общее описание цепи;
 можно на примере, но чуть обезличить»): что это, как работает, элементы, формулы, характеристики, применение,
 достоинства, недостатки, короткий пример расчёта и запросы для программы. К статье - файлы в data/handbook:
-<id>.cir (пример с номиналами, его открывает кнопка «Открыть пример в MC12»), <id>.png (картинка чертежа из MC12
-в общем виде - без номиналов, spice2cir.build(values=False)) и <id>_ac.json (АЧХ примера, расчёт MC12: чертёж и,
-у схем с ОУ, обвязка с идеальным ОУ). Числа примера (поле check) и формулы проверяет тест по узловому расчёту.
+<id>.cir (пример с номиналами, его открывает кнопка «Открыть пример в MC12») и <id>_ac.json (АЧХ примера, расчёт
+MC12: чертёж и, у схем с ОУ, обвязка с идеальным ОУ). Схема статьи - рисунок по ГОСТ (handbook_schematics.py,
+schematic.py, решение автора 17.11.2026; раньше - картинка чертежа MC12). Числа примера (поле check) и формулы проверяет тест по узловому расчёту.
 
-Пилот (решение автора 16.11.2026): 5 статей - RC ФНЧ, последовательный RLC, ФНЧ Саллена-Ки, полосовой МОС, реальный ОУ
-(TL071); картинки - чертёж и АЧХ из MC12, без фото. Остальные статьи - после одобрения пилота. Внешний вид (формат
-формул и др.) - позже, вместе со всем интерфейсом.
+Статьи - handbook_articles.py: 29 (все схемы класса и реальный ОУ; пилот из 5 одобрен автором 16.11.2026). Внешний вид
+(формат формул и др.) - позже, вместе со всем интерфейсом.
 
-Сборка файлов:  python src/mcnl/handbook.py --build     (нужен MC12; окно MC12 открывается на время выгрузки
-                картинок: команда /IC пакетного режима с ключом /quiet файл не пишет, docs/mc12_pipeline.md)
+Сборка файлов:  python src/mcnl/handbook.py --build     (нужен MC12, пакетный режим)
 """
 import json
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -55,24 +52,13 @@ def curve(article, d=None):
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
 
 
-def image(article, d=None):
-    p = Path(d or DIR) / f"{article['id']}.png"
-    return p if p.exists() else None
+def cir_text(article):
+    """Чертёж примера: тот же, что строит программа (с TL071 у схем с ОУ), без текста нетлиста справа."""
+    return spice2cir.build(article["netlist"], f_char(article), article["id"], opamp=article["opamp"], note=False)
 
 
-def cir_text(article, values=True):
-    """Чертёж примера: тот же, что строит программа (с TL071 у схем с ОУ), без текста нетлиста справа.
-    values=False - для картинки статьи: схема в общем виде, номиналы скрыты (только обозначения элементов), масштаб -
-    подобранный по размеру, но не мельче 1 (у большой схемы подбор даёт 2 - картинка выходит мелкой)."""
-    args = (article["netlist"], f_char(article), article["id"])
-    text = spice2cir.build(*args, opamp=article["opamp"], note=False, values=values)
-    if not values and float(text.split("Scale 0=")[1].split()[0]) > 1:
-        text = spice2cir.build(*args, opamp=article["opamp"], note=False, values=values, scale=1)
-    return text
-
-
-def build(articles=ARTICLES, out=DIR, images=True):
-    """Файлы статей: .cir, АЧХ из MC12 (пакетный режим, /quiet) и картинки чертежей (/IC, окно MC12)."""
+def build(articles=ARTICLES, out=DIR):
+    """Файлы статей: .cir (чертёж примера для MC12) и АЧХ примера из MC12 (пакетный режим, /quiet)."""
     out, work = Path(out), WORK
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
@@ -98,34 +84,12 @@ def build(articles=ARTICLES, out=DIR, images=True):
             data["db_ideal"] = [round(x, 3) for x in dbi]
         (out / f"{a['id']}_ac.json").write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
         report[a["id"]] = {"real": measure.from_output(w["output"]), "ideal": measure.from_output(r["output"])}
-    if images:
-        lines = []
-        for a in articles:
-            src = work / f"{a['id']}.cir"  # MC12 пишет рядом служебные файлы - не в data/handbook
-            spice2cir.write(src, cir_text(a, values=False))
-            lines.append(f'{src} /A /IC Page="Main" Output="{work / (a["id"] + ".png")}"')
-        bat = work / "images.bat"
-        bat.write_bytes(("\r\n".join(lines) + "\r\n").encode("ascii"))
-        exe = mc12run.find_exe()
-        subprocess.run([exe, f"@{bat}"], cwd=str(Path(exe).parent), timeout=600)
-        for a in articles:
-            png = next((p for p in work.iterdir() if p.name.lower() == f"{a['id']}.png"), None)
-            if png is None:
-                raise RuntimeError(f"{a['id']}: MC12 не выгрузил картинку чертежа")
-            shutil.copy(png, out / f"{a['id']}.png")
     return report
-
-
-def png_size(path):
-    """(ширина, высота) PNG по заголовку."""
-    import struct
-    b = Path(path).read_bytes()[:24]
-    return struct.unpack(">II", b[16:24])
 
 
 if __name__ == "__main__":
     if "--build" in sys.argv:
-        rep = build(images="--no-images" not in sys.argv)
+        rep = build()
         sys.stdout.reconfigure(encoding="utf-8")
         for k, v in rep.items():
             print(k, {n: {q: (round(x, 4) if isinstance(x, float) else x) for q, x in m.items() if x is not None}

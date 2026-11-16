@@ -23,7 +23,7 @@ from tkinter import ttk
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mcnl import app, canon, handbook, measure, mc12run, translators  # noqa: E402
+from mcnl import app, canon, handbook, handbook_schematics, measure, mc12run, schematic, translators  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "out" / "gui"
@@ -714,13 +714,14 @@ class Window:
         self.book_keep = []
         t.insert("end", a["title"] + "\n", "title")
         t.insert("end", a["summary"] + "\n", "p")
-        img = handbook.image(a)
-        if img:
-            photo = tk.PhotoImage(file=str(img))
-            self.book_keep.append(photo)
-            t.image_create("end", image=photo, pady=6)
-            t.insert("end", "\nСхема в MC12" + (" (ОУ TL071, питание ±15 В)" if a["opamp"] else "")
-                     + "; номиналы - в примере расчёта ниже\n", "cap")
+        sketch = handbook_schematics.SCHEMATICS[a["id"]]()  # схема по ГОСТ, разложена вручную
+        c = tk.Canvas(t, background="white", highlightthickness=0)
+        schematic.draw_tk(c, sketch, mm=3.4 * self.k)
+        self.book_keep.append(c)
+        t.window_create("end", window=c, pady=6)
+        has_opamp = any(kind == "OPAMP" for kind, _, _ in sketch.parts)
+        t.insert("end", "\nСхема по ГОСТ" + ("; питание ОУ не показано" if has_opamp and a["id"] != "tl071" else "")
+                 + "; номиналы - в примере расчёта ниже\n", "cap")
         t.insert("end", "Как работает\n", "h")
         for par in a["principle"]:
             t.insert("end", par + "\n", "p")

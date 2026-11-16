@@ -89,6 +89,7 @@
   запросы и их обратный разбор (словарь ролей - data/roles_ru.json); `generate.py` - сборка.
 - Программа: `app.py` - конвейер «запрос → .CIR → MC12»; `gui.py` - окно tkinter (docs/gui_spec.md, запуск `run_gui.bat`);
   `handbook.py` - справочник фильтров (вкладка окна): сборка файлов data/handbook из MC12 (`--build`), статьи - `handbook_articles.py`;
+  схемы статей по ГОСТ - `handbook_schematics.py` (разложены вручную) и `schematic.py` (символы, Canvas и SVG, сверка рисунка с нетлистом);
   `program_prompts.py` - выборка program (все запросы, которые показывает программа) с эталонами и проверка модели на 100%;
   `translators/` - сменные переводчики
   (интерфейс: output_format + translate(prompt); подключение load("файл.py:Класс")); `evaluate.py` -

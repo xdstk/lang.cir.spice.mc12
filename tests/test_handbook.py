@@ -13,8 +13,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from mcnl import canon, handbook, mna  # noqa: E402
+from mcnl import canon, handbook, mna, schematic  # noqa: E402
 from mcnl.handbook_articles import ORDER  # noqa: E402
+from mcnl.handbook_schematics import SCHEMATICS  # noqa: E402
 
 FIELDS = ("id", "group", "title", "summary", "principle", "netlist", "opamp", "elements", "formulas", "properties",
           "use", "pros", "cons", "example", "check", "prompts")
@@ -105,9 +106,9 @@ class Articles(unittest.TestCase):
             with self.subTest(a=a["id"]):
                 self.assertEqual([f for f in FIELDS if f not in a], [])
                 es = elems(a)
-                names = {e["name"] for e in es} | {"VPOS", "VNEG"}
+                names = {e["name"] for e in es} | {"+15 В", "−15 В"}
                 for label, _ in a["elements"]:  # подписи элементов есть в схеме примера
-                    self.assertTrue(set(label.replace(" ", "").split(",")) <= names, label)
+                    self.assertTrue(set(x.strip() for x in label.split(",")) <= names, label)
                 has_opamp = any(e["type"] == "OPAMP" for e in es)
                 if a["opamp"] is None and has_opamp:  # идеальный ОУ на чертеже - только если реальный насытился бы
                     self.assertTrue(mna.saturation(es))
@@ -163,6 +164,45 @@ class Articles(unittest.TestCase):
         self.assertAlmostEqual(drop, 30, delta=1.5)
 
 
+class Schematics(unittest.TestCase):
+    """Схемы статей по ГОСТ (handbook_schematics.py): каждая изображает схему статьи с теми же обозначениями."""
+
+    def test_every_drawing_is_the_article_circuit(self):
+        self.assertEqual(set(SCHEMATICS), set(handbook.BY_ID))
+        for a in handbook.ARTICLES:
+            with self.subTest(a=a["id"]):
+                sk = SCHEMATICS[a["id"]]()
+                ok, drawn, ref = schematic.same_circuit(sk, a["netlist"])
+                self.assertTrue(ok, f"\nрисунок {drawn}\nнетлист {ref}")
+                # подписи раздела «Элементы» есть на рисунке (обозначения элементов или текст, например «+15 В»)
+                shown = {n for _, n, _ in sk.parts} | {p[3] for p in sk.prims if p[0] == "text"}
+                for label, _ in a["elements"]:
+                    self.assertTrue(set(x.strip() for x in label.split(",")) <= shown, label)
+                svg = schematic.to_svg(sk)
+                self.assertTrue(svg.startswith("<svg") and svg.count("<line") > 5)
+
+    def test_check_catches_wrong_drawing(self):
+        # проверка не пустая: не тот символ, R1 и C1 поменяны местами, обрыв провода - всё ловится
+        net = handbook.BY_ID["rc_lp"]["netlist"]
+        s = schematic.Sketch()
+        s.terminal((0, 0), "IN", "Uвх").terminal((40, 0), "OUT", "Uвых", side="right").rail(20, 0, 40)
+        s.wire((0, 0), (5, 0)).C("R1", (5, 0), (20, 0)).wire((20, 0), (40, 0))
+        s.two("R", "C1", (30, 0), (30, 20))
+        self.assertFalse(schematic.same_circuit(s, net)[0])  # обозначения на месте, но символы не того типа
+        s = schematic.Sketch()
+        s.terminal((0, 0), "IN", "Uвх").terminal((40, 0), "OUT", "Uвых", side="right").rail(20, 0, 40)
+        s.wire((0, 0), (5, 0)).R("C1", (5, 0), (20, 0)).wire((20, 0), (40, 0))
+        s.C("R1", (30, 0), (30, 20))
+        self.assertFalse(schematic.same_circuit(s, net)[0])  # R1 и C1 поменяны местами
+        s = schematic.Sketch()
+        s.terminal((0, 0), "IN", "Uвх").terminal((40, 0), "OUT", "Uвых", side="right").rail(20, 0, 40)
+        s.wire((0, 0), (5, 0)).R("R1", (5, 0), (20, 0)).wire((25, 0), (40, 0))
+        s.C("C1", (30, 0), (30, 20))
+        self.assertFalse(schematic.same_circuit(s, net)[0])  # обрыв между R1 и узлом выхода
+        with self.assertRaises(ValueError):
+            schematic.Sketch().wire((0, 0), (5, 5))  # провод не по сетке
+
+
 class Assets(unittest.TestCase):
     def test_files_from_mc12(self):
         for a in handbook.ARTICLES:
@@ -171,13 +211,6 @@ class Assets(unittest.TestCase):
                 self.assertEqual(cir.read_bytes().decode("ascii"), handbook.cir_text(a).replace("\r\n", "\n")
                                  .replace("\n", "\r\n"))  # файл в data совпадает с тем, что строит код
                 self.assertEqual("TL071C" in cir.read_text(encoding="ascii"), a["opamp"] is not None)
-                # картинка - схема в общем виде: номиналы R, C, L скрыты; в примере для MC12 они видны
-                hidden = f"Style={handbook.spice2cir.STYLE_HIDDEN}"
-                self.assertNotIn(hidden, cir.read_text(encoding="ascii"))
-                self.assertEqual(handbook.cir_text(a, values=False).count(hidden),
-                                 sum(1 for e in elems(a) if e["type"] in "RCLV"))
-                w, h = handbook.png_size(handbook.image(a))
-                self.assertTrue(400 < w < 1000 and 150 < h < 700, (w, h))
                 d = handbook.curve(a)
                 self.assertEqual(len(d["f"]), len(d["db"]))
                 self.assertEqual("db_ideal" in d, a["opamp"] is not None)

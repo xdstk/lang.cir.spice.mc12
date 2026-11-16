@@ -30,7 +30,7 @@
 | `src/mcnl/synth.py` | режим 2: расчёт номиналов по `?` и `.SPEC` (формулы, Ньютон, ряды E24/E12, каскады) |
 | `src/mcnl/training.py`, `hf_runtime.py`, `colab/` | экспорт для обучения, инструкции, загрузка и генерация; ноутбуки Colab (собирает `colab/build_notebook.py`) |
 | `src/mcnl/app.py`, `gui.py`, `translators/` | программа: конвейер «запрос → MC12», окно, сменные переводчики (baseline, обученная модель, GLM по API) |
-| `src/mcnl/handbook.py`, `data/handbook/` | справочник фильтров (вкладка окна): статьи, чертежи и АЧХ примеров из MC12 |
+| `src/mcnl/handbook*.py`, `schematic.py`, `data/handbook/` | справочник фильтров (вкладка окна): статьи, схемы по ГОСТ (свой рисунок, SVG), примеры для MC12 и их АЧХ |
 | `src/mcnl/evaluate.py`, `human_test.py` | оценка переводчика на выборке; сбор и разметка запросов людей и языковых моделей |
 | `src/mcnl/designer.py`, `designer_data.py`, `mc12_real.py` | режим дизайнера (Design → Active Filters MC12), реальные схемы из примеров MC12 |
 | `data/dataset/` | датасеты v1, v2, v3, v3_1, v3_2 и проверочные выборки llm_test, llm_test2, llm_test3, mc12_real (все заморожены, SHA-256 в README каждой) |
