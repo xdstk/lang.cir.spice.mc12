@@ -27,8 +27,12 @@ from mcnl import app, canon, measure, mc12run, translators  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "out" / "gui"
-DEFAULTS = {"base": "Qwen/Qwen3.5-4B", "adapter": str(ROOT / "out" / "q35_4b" / "adapter"),
+# адаптер режима 1 (trained_on - на чём обучен: инструкция), адаптер режима 2 - на той же базе; пока m2 v3.1 не обучен -
+# общая модель v3 (docs/mode2_spec.md, раздел 9); нет папки - режим 2 у Qwen недоступен
+DEFAULTS = {"base": "Qwen/Qwen3.5-4B", "adapter": str(ROOT / "out" / "q35_4b" / "adapter"), "trained_on": "v2",
+            "adapter_mode2": str(ROOT / "out" / "q35_4b_v3" / "adapter"), "trained_on_mode2": "v3",
             "real_opamp": True}  # реальный ОУ на чертеже по умолчанию (решение автора 16.11.2026)
+MODE_NAMES = {1: "перевод описания", 2: "подбор номиналов"}
 QWEN, BASELINE = "Qwen3.5-4B (локально)", "baseline (проверка окна)"
 KIND = {"LP": "ФНЧ", "HP": "ФВЧ", "BP": "полосовой", "BS": "режекторный", "flat": "без частотной зависимости"}
 EXAMPLE = "ФНЧ Саллена-Ки на повторителе: R1 10 кОм, R2 10 кОм, C1 (ОС) 22 нФ, C2 (земля) 10 нФ; сигнал на вход"
@@ -52,6 +56,15 @@ EXAMPLES = [
     ("Отказ: транзистор", "Усилитель на транзисторе КТ315 с коэффициентом усиления 20"),
     ("Отказ: номиналы не заданы", "Собери ФНЧ на 1 кГц"),
 ]
+# Примеры режима 2 (подбор номиналов): выбор переключает режим. Конвейер проверен на эталонных ответах test v3,
+# ответы модели на эти запросы - не проверены (адаптера режима 2 локально ещё нет, 16.11.2026).
+EXAMPLES_MODE2 = [
+    ("Подбор: ФНЧ на 1 кГц", "Нужен ФНЧ на 1 кГц"),
+    ("Подбор: активный ФНЧ 4-го порядка", "Активный ФНЧ Баттерворта 4-го порядка на 2 кГц"),
+    ("Подбор: полосовой на ОУ, Q = 5", "Активный полосовой фильтр на 5 кГц с добротностью 5"),
+    ("Подбор: Саллен-Ки с заданными C", "ФНЧ Саллена-Ки на повторителе, срез 1 кГц; C1 (ОС) 22 нФ, C2 (земля) 10 нФ, "
+                                        "резисторы подобрать"),
+]
 # Вкладка «Правила» (docs/gui_spec.md, шаг 3): ("h", заголовок) | ("p", пункт) | ("ex", пример с кнопкой «В запрос»).
 # Примеры проверены на Qwen3.5-4B и MC12 07.11.2026: схемы построены верно, отказы - с верным кодом.
 RULES = [
@@ -72,6 +85,14 @@ RULES = [
            "C2 10 нФ с выхода на землю; сигнал на вход"),
     ("ex", "Инвертирующий усилитель на ОУ: входной резистор 4,7 кОм, резистор обратной связи 47 кОм; сигнал на вход"),
     ("ex", "RC ФНЧ: резистор 1 кОм, конденсатор 100 нФ; после выхода ещё 470 Ом последовательно, выход за ним"),
+    ("h", "Режим 2: подбор номиналов"),
+    ("p", "Переключатель «Режим» - «подбор номиналов»: напишите тип фильтра и частоту, остальное подберёт программа."),
+    ("p", "Можно добавить порядок, Баттерворт или Чебышёв, добротность, усиление, «активный» или «на ОУ», "
+          "назвать схему и задать часть номиналов. Без слова «активный» фильтр пассивный."),
+    ("p", "Модель пишет схему с неизвестными «?» и строку целей .SPEC, номиналы считает программа (R - ряд E24, C и L - "
+          "E12) и проверяет в MC12. В «Замечаниях» - что подобрано и насколько попали в цель."),
+    ("p", "Строку .SPEC в поле справа можно поправить (например, fc=2k) и нажать «Пересчитать» - без модели."),
+    ("ex", "Нужен ФНЧ на 1 кГц"),
     ("h", "Когда программа откажет"),
     ("p", "Транзисторы, диоды, цифровые микросхемы - вне класса схем."),
     ("p", "Несколько входов (сумматор, вычитатель, дифференциальный усилитель)."),
@@ -121,6 +142,8 @@ def cards(m):
 
 
 PLOT_TITLE = "АЧХ (расчёт MC12)"
+NETLIST_TITLE = {1: "Нетлист (можно править и пересчитать)",
+                 2: "Ответ модели: ? - номиналы подобрать, .SPEC - цели (можно править и пересчитать)"}
 
 
 def plot_title(rep):
@@ -168,6 +191,13 @@ def plot_geometry(f, db, width, height, pad=(42, 10, 10, 24), span_db=80, also=N
     return {"lines": polylines(pts), "xgrid": xgrid, "ygrid": ygrid, "x": x, "also_lines": polylines(pts2)}
 
 
+def netlist_text(rep):
+    """Текст поля нетлиста: в режиме 2 - ответ модели с ? и .SPEC (его правят и пересчитывают), иначе - нетлист."""
+    if rep.get("synth"):
+        return (rep.get("output") or "").strip()
+    return (rep.get("netlist") or rep.get("output") or "").strip()
+
+
 def notes_of(rep):
     """Строки замечаний: отказ, ошибки разбора, сообщения конвейера и замечания к схеме."""
     out = []
@@ -204,11 +234,12 @@ def read_history(path=None):
     return items[::-1]
 
 
-def add_history(prompt, result, path=None):
-    """Запрос в историю: повтор поднимается наверх, хранится HISTORY_SIZE последних."""
+def add_history(prompt, result, path=None, mode=1):
+    """Запрос в историю: повтор (тот же запрос в том же режиме) поднимается наверх, хранится HISTORY_SIZE последних.
+    Режим запоминается: запрос из истории возвращается в своём режиме."""
     p = Path(path or OUT / "history.jsonl")
-    items = [h for h in read_history(p)[::-1] if h["prompt"] != prompt]
-    items.append({"prompt": prompt, "result": result, "time": time.strftime("%Y-%m-%d %H:%M")})
+    items = [h for h in read_history(p)[::-1] if (h["prompt"], h.get("mode", 1)) != (prompt, mode)]
+    items.append({"prompt": prompt, "result": result, "time": time.strftime("%Y-%m-%d %H:%M"), "mode": mode})
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text("".join(json.dumps(h, ensure_ascii=False) + "\n" for h in items[-HISTORY_SIZE:]), encoding="utf-8")
 
@@ -230,6 +261,24 @@ def save_setting(key, value, path=None):
     p.write_text(json.dumps(s, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
+# Индикатор переводчика рядом со списком: серый мигает - модель загружается, зелёный - готов, жёлтый - запрос
+# выполняется (перевод и MC12), красный - модель не загрузилась (решение автора 16.11.2026).
+LAMP = {"loading": ("#b4b2a9", "загрузка…"), "ready": ("#2e9e44", "готов"), "busy": ("#e0a020", "работает…"),
+        "error": ("#d03b3b", "ошибка"), "idle": ("#d3d1c7", "не выбран")}
+LAMP_BLINK = "#e4e2db"  # второй цвет мигания при загрузке
+
+
+def lamp_state(name, loaded, loading, errors, busy):
+    """Состояние индикатора для выбранного переводчика name: ключ LAMP. busy - сколько запросов в очереди и в работе."""
+    if name in errors and name not in loading:
+        return "error"
+    if name in loading:
+        return "loading"
+    if busy:
+        return "busy"
+    return "ready" if name in loaded else "idle"
+
+
 # ---------------------------------------------------------------- окно
 
 class Window:
@@ -238,6 +287,9 @@ class Window:
         self.tasks, self.results = queue.Queue(), queue.Queue()
         self.translators = {}  # имя -> загруженный переводчик
         self.loading = set()
+        self.load_errors = {}  # имя -> текст ошибки загрузки
+        self.busy = 0  # запросов в очереди и в работе (меняется только в главном потоке)
+        self.blink = False
         self.rep = None
         self.counter = 0
         self.settings = load_settings()
@@ -250,6 +302,7 @@ class Window:
         self._build()
         threading.Thread(target=self._worker, daemon=True).start()
         root.after(100, self._poll)
+        root.after(500, self._blink)
         self._select_translator()
 
     # --- раскладка
@@ -279,7 +332,10 @@ class Window:
         ex.pack(side="right", padx=6)
         ex_menu = tk.Menu(ex, tearoff=False)
         for title, prompt in EXAMPLES:
-            ex_menu.add_command(label=title, command=lambda s=prompt: self.use_example(s))
+            ex_menu.add_command(label=title, command=lambda s=prompt: self.use_example(s, 1))
+        ex_menu.add_separator()
+        for title, prompt in EXAMPLES_MODE2:
+            ex_menu.add_command(label=title, command=lambda s=prompt: self.use_example(s, 2))
         ex["menu"] = ex_menu
         self.prompt = tk.Text(left, height=8, wrap="word", font=("Segoe UI", 10), undo=True)
         self.prompt.pack(fill="x", pady=(2, 8))
@@ -288,12 +344,27 @@ class Window:
         row.pack(fill="x", pady=(0, 8))
         ttk.Label(row, text="Переводчик").pack(side="left")
         self.choice = tk.StringVar(value=QWEN)
-        box = ttk.Combobox(row, textvariable=self.choice, values=[QWEN, BASELINE], state="readonly", width=30)
+        box = ttk.Combobox(row, textvariable=self.choice, values=[QWEN, BASELINE], state="readonly", width=28)
         box.pack(side="left", padx=8)
         box.bind("<<ComboboxSelected>>", lambda e: self._select_translator())
+        d = int(14 * self.k)
+        self.lamp = tk.Canvas(row, width=d, height=d, highlightthickness=0, background=self.root.cget("background"))
+        self.lamp.pack(side="left")
+        self.lamp_dot = self.lamp.create_oval(1, 1, d - 1, d - 1, fill=LAMP["loading"][0], outline="")
+        self.lamp_text = tk.StringVar(value=LAMP["loading"][1])
+        ttk.Label(row, textvariable=self.lamp_text, foreground="#5f5e5a").pack(side="left", padx=(5, 0))
+        mrow = ttk.Frame(left)
+        mrow.pack(fill="x", pady=(0, 8))
+        ttk.Label(mrow, text="Режим").pack(side="left")
+        self.mode = tk.IntVar(value=1)
+        for m, title in MODE_NAMES.items():
+            ttk.Radiobutton(mrow, text=title, value=m, variable=self.mode,
+                            command=self._mode_changed).pack(side="left", padx=(8, 0))
+        orow = ttk.Frame(left)
+        orow.pack(fill="x", pady=(0, 8))
         self.real_opamp = tk.BooleanVar(value=bool(self.settings.get("real_opamp")))
-        ttk.Checkbutton(row, text="Реальный ОУ (TL071, ±15 В)", variable=self.real_opamp,
-                        command=lambda: save_setting("real_opamp", self.real_opamp.get())).pack(side="left", padx=8)
+        ttk.Checkbutton(orow, text="Реальный ОУ на чертеже (TL071, ±15 В)", variable=self.real_opamp,
+                        command=lambda: save_setting("real_opamp", self.real_opamp.get())).pack(side="left")
         buttons = ttk.Frame(left)
         buttons.pack(fill="x", pady=(0, 8))
         self.b_build = ttk.Button(buttons, text="Построить", command=self.build)
@@ -307,7 +378,8 @@ class Window:
 
         right = ttk.Frame(main)
         right.grid(row=0, column=1, sticky="nsew")
-        ttk.Label(right, text="Нетлист (можно править и пересчитать)").pack(anchor="w")
+        self.netlist_title = tk.StringVar(value=NETLIST_TITLE[1])
+        ttk.Label(right, textvariable=self.netlist_title).pack(anchor="w")
         self.netlist = tk.Text(right, height=10, wrap="none", font=mono, undo=True)
         self.netlist.pack(fill="x", pady=(2, 8))
         self.card_frame = ttk.Frame(right)
@@ -362,10 +434,15 @@ class Window:
             self.hist_menu.add_command(label="Пока пусто", state="disabled")
         for h in items:
             label = h["prompt"] if len(h["prompt"]) <= 70 else h["prompt"][:67] + "…"
-            self.hist_menu.add_command(label=f"{label}   [{h.get('result', '-')}]",
-                                       command=lambda s=h["prompt"]: self.use_example(s))
+            mode = h.get("mode", 1)
+            tag = h.get("result", "-") if mode == 1 else f"подбор: {h.get('result', '-')}"
+            self.hist_menu.add_command(label=f"{label}   [{tag}]",
+                                       command=lambda s=h["prompt"], m=mode: self.use_example(s, m))
 
-    def use_example(self, prompt):
+    def use_example(self, prompt, mode=None):
+        if mode:
+            self.mode.set(mode)
+            self._mode_changed()
         self.prompt.delete("1.0", "end")
         self.prompt.insert("1.0", prompt)
         self.tabs.select(0)
@@ -374,16 +451,34 @@ class Window:
     # --- действия
     def _select_translator(self):
         name = self.choice.get()
-        if name not in self.translators and name not in self.loading:
+        if name not in self.translators and name not in self.loading:  # после ошибки - новая попытка
             self.loading.add(name)
-            self.status.set(f"{name}: загрузка…" + (" (модель грузится около 30 с)" if name == QWEN else ""))
+            self.load_errors.pop(name, None)
+            self.status.set(f"{name}: загрузка…" + (" (модель грузится около 30-45 с)" if name == QWEN else ""))
             threading.Thread(target=self._load_task, args=(name,), daemon=True).start()  # не ждёт запросов в очереди
+        self._update_lamp()
 
     def _load_task(self, name):
         try:
             self.results.put(("loaded", name, self._load(name)))
         except Exception as err:  # noqa: BLE001
-            self.results.put(("error", name, f"{type(err).__name__}: {err}"))
+            self.results.put(("load_error", name, f"{type(err).__name__}: {err}"))
+
+    def _update_lamp(self):
+        key = lamp_state(self.choice.get(), self.translators, self.loading, self.load_errors, self.busy)
+        color, text = LAMP[key]
+        if key == "loading" and self.blink:
+            color = LAMP_BLINK
+        self.lamp.itemconfigure(self.lamp_dot, fill=color)
+        self.lamp_text.set(text)
+
+    def _blink(self):
+        """Мигание серого индикатора, пока модель загружается: видно, что окно живо."""
+        self.blink = not self.blink
+        try:
+            self._update_lamp()
+        finally:
+            self.root.after(500, self._blink)
 
     def build(self):
         prompt = self.prompt.get("1.0", "end").strip()
@@ -391,22 +486,35 @@ class Window:
             self.status.set("Введите запрос")
             return
         name = self.choice.get()
-        wait = "" if name in self.translators else f" ({name} ещё загружается, запрос выполнится после загрузки)"
-        self.status.set("Перевод и расчёт в MC12…" + wait)
-        self.tasks.put(("build", name, (prompt, self._opamp())))
+        if name in self.load_errors and name not in self.loading:
+            self.status.set(f"{name} не загрузился: {self.load_errors[name]} - выберите переводчик в списке ещё раз")
+            return
+        if name in self.translators:
+            self.status.set(f"Перевод запроса ({name}) и расчёт в MC12…")
+        else:
+            self.status.set(f"Запрос в очереди: выполнится сразу после загрузки {name}")
+        self.busy += 1
+        self._update_lamp()
+        self.tasks.put(("build", name, (prompt, self._opamp(), self.mode.get())))
 
     def recalc(self):
         text = self.netlist.get("1.0", "end").strip()
         if not text:
             self.status.set("Нетлист пуст")
             return
-        elems, errors = canon.parse_netlist(text)
+        mode = self.mode.get()
+        elems, errors = ([], None) if mode == 2 and app.is_mode2_answer(text) else canon.parse_netlist(text)
         if errors:
             self._show_notes([f"Ошибка разбора: {e}" for e in errors])
             self.status.set("Нетлист не разобран")
             return
         self.status.set("Расчёт в MC12…")
-        self.tasks.put(("recalc", None, (text, self._opamp())))
+        self.busy += 1
+        self._update_lamp()
+        self.tasks.put(("recalc", None, (text, self._opamp(), mode)))
+
+    def _mode_changed(self):
+        self.netlist_title.set(NETLIST_TITLE[self.mode.get()])
 
     def _opamp(self):
         """Модель реального ОУ для чертежа или None; читается в главном потоке и уходит в задачу значением."""
@@ -437,15 +545,16 @@ class Window:
                         tr = self.translators.get(name)
                     if tr is None:
                         raise RuntimeError(f"{name} не загружен")
+                    self.results.put(("started", name, None))
                     t0 = time.time()
-                    prompt, opamp = payload
-                    rep = app.run(prompt, tr, outdir=OUT, name=self._next_name(), opamp=opamp)
+                    prompt, opamp, mode = payload
+                    rep = app.run(prompt, tr, outdir=OUT, name=self._next_name(), opamp=opamp, mode=mode)
                     rep["seconds"] = time.time() - t0
                     self.results.put(("done", name, rep))
                 elif kind == "recalc":
                     t0 = time.time()
-                    text, opamp = payload
-                    rep = app.run(netlist=text, outdir=OUT, name=self._next_name(), opamp=opamp)
+                    text, opamp, mode = payload
+                    rep = app.run(netlist=text, outdir=OUT, name=self._next_name(), opamp=opamp, mode=mode)
                     rep["seconds"] = time.time() - t0
                     self.results.put(("done", None, rep))
             except Exception as err:  # noqa: BLE001 - ошибка показывается в окне, поток живёт дальше
@@ -457,7 +566,11 @@ class Window:
             tr = translators.load("baseline")
         else:
             os.environ.setdefault("HF_HUB_OFFLINE", "1")  # модель уже в кэше, сеть не нужна
-            tr = translators.load("hf", base=self.settings["base"], adapter=self.settings["adapter"])
+            st = self.settings
+            m2 = st.get("adapter_mode2")
+            m2 = m2 if m2 and Path(m2).exists() else None  # нет адаптера режима 2 - режим 2 только у модели на v3
+            tr = translators.load("hf", base=st["base"], adapter=st["adapter"], trained_on=st.get("trained_on", "v2"),
+                                  adapter_mode2=m2, trained_on_mode2=st.get("trained_on_mode2", "v3"))
         self.translators[name] = tr
         return time.time() - t0
 
@@ -472,12 +585,21 @@ class Window:
                 kind, name, data = self.results.get_nowait()
                 if kind == "loaded":
                     self.loading.discard(name)
-                    self.status.set(f"{name}: готов, загрузка {data:.0f} с" + self._gpu())
-                elif kind == "error":
+                    queued = " Выполняю запрос из очереди: перевод и расчёт в MC12…" if self.busy else ""
+                    self.status.set(f"{name}: загружен за {data:.0f} с" + self._gpu() + "." + queued)
+                elif kind == "load_error":
                     self.loading.discard(name)
+                    self.load_errors[name] = data
+                    self.status.set(f"{name} не загрузился: {data}")
+                elif kind == "started":
+                    self.status.set(f"Перевод запроса ({name}) и расчёт в MC12…")
+                elif kind == "error":
+                    self.busy = max(0, self.busy - 1)
                     self.status.set(f"Ошибка: {data}")
                 else:
+                    self.busy = max(0, self.busy - 1)
                     self._show(data)
+                self._update_lamp()
         except queue.Empty:
             pass
         except Exception as err:  # noqa: BLE001 - ошибка показа не должна останавливать опрос очереди
@@ -500,11 +622,11 @@ class Window:
         self.rep = rep
         if rep.get("prompt"):
             try:
-                add_history(rep["prompt"], history_result(rep))
+                add_history(rep["prompt"], history_result(rep), mode=rep.get("mode", 1))
             except OSError:  # история - удобство: не записалась - окно работает дальше
                 pass
         self.netlist.delete("1.0", "end")
-        self.netlist.insert("1.0", (rep.get("netlist") or rep.get("output") or "").strip())
+        self.netlist.insert("1.0", netlist_text(rep))
         self._show_cards(rep.get("measured"))
         self._show_notes(notes_of(rep))
         self._draw_plot()

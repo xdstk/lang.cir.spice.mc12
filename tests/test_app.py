@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from mcnl import app, canon, evaluate, iso, mc12run, measure, translators  # noqa: E402
+from mcnl import app, canon, evaluate, iso, mc12run, measure, training, translators  # noqa: E402
 
 TEST = [json.loads(l) for l in (ROOT / "data" / "dataset" / "v1" / "test.jsonl").read_text(encoding="utf-8").splitlines()]
 RC = "V1 IN 0 DC 0\nR1 IN OUT 1k\nC1 OUT 0 100n\n"
@@ -146,6 +146,65 @@ class App(unittest.TestCase):
         self.assertIsNone(app.card_band({"type": "flat"}))
         self.assertIsNone(app.card_band(None))
 
+    def test_mode2_answer_detection(self):
+        self.assertTrue(app.is_mode2_answer(".SPEC type=LP fc=1k"))
+        self.assertTrue(app.is_mode2_answer("V1 IN 0 DC 0\nR1 IN OUT ?\nC1 OUT 0 10n\n.SPEC type=LP fc=1k"))
+        self.assertFalse(app.is_mode2_answer(RC))
+
+    def test_mode2_offline(self):
+        """Режим 2 на эталонных ответах test v3 (как от модели): все виды дают схему с номиналами, отказы - отказ,
+        ПФ выше 2-го порядка - сообщение о дизайнере MC12 (в программу не подключён)."""
+        recs = [json.loads(l) for l in (ROOT / "data" / "dataset" / "v3" / "test.jsonl").read_text(encoding="utf-8")
+                .splitlines()]
+        m2 = [r for r in recs if r.get("mode") == 2]
+        echo = translators.load("echo", answers={r["prompt"]: training.answer_for(r) for r in m2})
+        got = {}
+        for r in m2:
+            rep = app.run(r["prompt"], echo, outdir=ROOT / "out" / "test_app", name="m2", mc12=False, mode=2)
+            kind = "refused" if rep.get("refused") else "netlist" if rep.get("netlist") else "message"
+            got.setdefault((r["kind"], kind), 0)
+            got[(r["kind"], kind)] += 1
+            if kind == "netlist":
+                self.assertNotIn("?", rep["netlist"])
+                self.assertEqual(rep["output"], training.answer_for(r))  # в окне правится ответ модели
+                self.assertTrue(rep["notes"][0].startswith(("подбор номиналов", "схему выбрала программа")), rep["notes"])
+                self.assertIn("задано -> получено (узловой расчёт)", rep["notes"][1])
+            if kind == "message":
+                self.assertIn("дизайнер", rep["messages"][0])
+        self.assertEqual(got, {("circuit", "netlist"): 24, ("named", "netlist"): 25, ("spec", "netlist"): 30,
+                               ("spec", "message"): 1, ("refuse", "refused"): 10})
+
+    def test_mode2_messages(self):
+        out = ROOT / "out" / "test_app"
+        rep = app.run("ФНЧ на 1 кГц", translators.load("baseline"), outdir=out, mc12=False, mode=2)
+        self.assertIn("не умеет режим 2", rep["messages"][0])
+        rep = app.run(netlist=".SPEC type=LP", outdir=out, name="m2_err", mc12=False, mode=2)
+        self.assertTrue(rep["messages"][0].startswith("номиналы не подобраны"), rep["messages"])
+        # пересчёт правленого ответа: .SPEC с другой частотой - другие номиналы
+        rep = app.run(netlist=".SPEC type=LP fc=2k", outdir=out, name="m2_edit", mc12=False, mode=2)
+        self.assertEqual(rep["synth"]["topology"], "rc_lp")
+        self.assertIn("fc 2 кГц -> 2", rep["notes"][1])
+        # нетлист без ? и .SPEC в режиме 2 - обычная схема
+        rep = app.run(netlist=RC, outdir=out, name="m2_plain", mc12=False, mode=2)
+        self.assertNotIn("synth", rep)
+        self.assertEqual(rep["netlist"], RC)
+        # режим 1, номиналы не заданы: подсказка про режим 2
+        class Refuse:
+            output_format = "netlist"
+
+            def translate(self, prompt):
+                return "REFUSE needs_design: номиналы не заданы"
+        rep = app.run("ФНЧ на 1 кГц", Refuse(), outdir=out, mc12=False)
+        self.assertIn("режима 2", rep["messages"][-1])
+
+    def test_hf_adapter_slots(self):
+        # без torch: какой адаптер и какая инструкция у каждого режима
+        from mcnl.translators import hf_model
+        self.assertEqual(hf_model.slots("a1"), {1: ("default", "v2")})  # модель на v2: режима 2 нет
+        self.assertEqual(hf_model.slots("a1", "v3"), {1: ("default", "v3"), 2: ("default", "v3")})  # общая v3
+        self.assertEqual(hf_model.slots("a1", "v2", "a2"), {1: ("default", "v2"), 2: ("mode2", "v3")})
+        self.assertEqual(hf_model.slots("a1", "v3", "a1"), {1: ("default", "v3"), 2: ("default", "v3")})
+
     def test_real_opamp_offline(self):
         out = ROOT / "out" / "test_app"
         rep = app.run(netlist=SK_HP, outdir=out, name="sk_real_off", mc12=False, opamp=app.OPAMP_REAL)
@@ -212,6 +271,36 @@ class WithMC12(unittest.TestCase):
                       outdir=ROOT / "out" / "test_app", name="diff_real", opamp=app.OPAMP_REAL)
         self.assertEqual(rep["measured"]["type"], "BP")
         self.assertTrue(any("сказывается конечная полоса" in n for n in rep["notes"]), rep["notes"])
+
+    def test_mode2_pipeline(self):
+        """Режим 2 целиком: подобранная схема считается в MC12 (обвязка и чертёж с TL071C одним запуском) и попадает
+        в цели с допуском оценки режима 2 (score2: частота и Q - 10%, усиление - 1 дБ)."""
+        recs = [json.loads(l) for l in (ROOT / "data" / "dataset" / "v3" / "test.jsonl").read_text(encoding="utf-8")
+                .splitlines()]
+        picked, seen = [], set()
+        for r in recs:  # по одной записи каждого вида и с ОУ, и без
+            if r.get("mode") == 2 and not r.get("refuse"):
+                key = (r["kind"], "OPAMP" in training.answer_for(r) or "active=yes" in training.answer_for(r))
+                if key not in seen:
+                    seen.add(key)
+                    picked.append(r)
+        self.assertGreaterEqual(len(picked), 4)
+        for i, r in enumerate(picked):
+            with self.subTest(rec=r["id"]):
+                rep = app.run(netlist=training.answer_for(r), outdir=ROOT / "out" / "test_app", name=f"m2_{i}",
+                              opamp=app.OPAMP_REAL, mode=2)
+                if rep["synth"].get("route") == "designer":
+                    continue
+                self.assertTrue(rep["run"]["ok"], rep)
+                got = rep.get("measured_ideal") or rep["measured"]
+                for k, want in rep["synth"]["wanted"].items():
+                    if k == "type" or want is None:
+                        continue
+                    if k == "k_pass_db":
+                        self.assertLess(abs(got[k] - want), 1.0, (k, got[k], want))
+                    else:
+                        self.assertLess(abs(got[k] / want - 1), 0.1, (k, got[k], want))
+                self.assertIn("получено (MC12)", rep["notes"][1])
 
     def test_evaluate_subset(self):
         out = ROOT / "out" / "test_app" / "eval"

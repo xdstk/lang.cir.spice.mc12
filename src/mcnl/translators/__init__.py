@@ -11,9 +11,11 @@ from pathlib import Path
 
 
 class Translator:
-    """Базовый класс (необязателен: достаточно тех же поля и метода)."""
+    """Базовый класс (необязателен: достаточно тех же поля и метода). modes - режимы, которые переводчик умеет:
+    1 - перевод описания, 2 - подбор номиналов (translate(prompt, mode=2), docs/mode2_spec.md)."""
     name = "translator"
     output_format = "netlist"
+    modes = (1,)
 
     def translate(self, prompt):
         raise NotImplementedError

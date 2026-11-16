@@ -51,6 +51,28 @@ class Data(unittest.TestCase):
         self.assertIn("TL071C", gui.plot_title({"opamp": "TL071C"}))
         self.assertEqual(gui.freq_label(2e9), "2 ГГц")
 
+    def test_mode2_texts(self):
+        # в режиме 2 поле справа - ответ модели с ? и .SPEC: его правят и пересчитывают; иначе - нетлист
+        rep = {"output": ".SPEC type=LP fc=1k\n", "netlist": "V1 IN 0 DC 0\nR1 IN OUT 16k\nC1 OUT 0 10n\n",
+               "synth": {"route": "single"}}
+        self.assertEqual(gui.netlist_text(rep), ".SPEC type=LP fc=1k")
+        self.assertEqual(gui.netlist_text(dict(rep, synth=None)), rep["netlist"].strip())
+        self.assertEqual(len(gui.EXAMPLES_MODE2), 4)
+        self.assertIn(("h", "Режим 2: подбор номиналов"), gui.RULES)
+        self.assertEqual(set(gui.NETLIST_TITLE), {1, 2})
+
+    def test_lamp_state(self):
+        # индикатор переводчика: серый - загрузка (и запрос ждёт её в очереди), жёлтый - запрос в работе,
+        # зелёный - готов, красный - не загрузился
+        q = "Qwen"
+        self.assertEqual(gui.lamp_state(q, {}, {q}, {}, 0), "loading")
+        self.assertEqual(gui.lamp_state(q, {}, {q}, {}, 1), "loading")  # «Построить» до загрузки: ждём модель
+        self.assertEqual(gui.lamp_state(q, {q: 1}, set(), {}, 1), "busy")
+        self.assertEqual(gui.lamp_state(q, {q: 1}, set(), {}, 0), "ready")
+        self.assertEqual(gui.lamp_state(q, {}, set(), {q: "OSError"}, 0), "error")
+        self.assertEqual(gui.lamp_state(q, {}, {q}, {q: "OSError"}, 0), "loading")  # повторная попытка
+        self.assertEqual(set(gui.LAMP), {"loading", "ready", "busy", "error", "idle"})
+
     def test_save_setting(self):
         p = Path(__file__).resolve().parents[1] / "out" / "test_gui" / "settings.json"
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -84,6 +106,9 @@ class Data(unittest.TestCase):
             self.assertEqual((items[0]["prompt"], items[0]["result"]), ("запрос 10", "ФВЧ"))
             self.assertEqual(sum(h["prompt"] == "запрос 10" for h in items), 1)
             self.assertEqual(items[1]["prompt"], "запрос 24")
+            gui.add_history("запрос 10", "ФНЧ", path, mode=2)  # тот же запрос в режиме 2 - отдельная строка
+            items = gui.read_history(path)
+            self.assertEqual([(h["prompt"], h["mode"]) for h in items[:2]], [("запрос 10", 2), ("запрос 10", 1)])
 
     def test_history_result(self):
         self.assertEqual(gui.history_result({"refused": {"code": "out_of_class"}}), "отказ")

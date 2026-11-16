@@ -5,10 +5,13 @@
          python src/mcnl/app.py --netlist схема.txt [--open]          (без переводчика)
          --out папка  (по умолчанию out/app; должна быть обычной папкой - MC12 не видит AppData пакета)
          --opamp TL071C  (реальный ОУ с питанием на чертеже; по умолчанию - идеальный)
+         --mode 2        (подбор номиналов; с --netlist - файл с `?` и `.SPEC`, как ответ модели)
 
 Переводчик - сменная «батарейка» (mcnl.translators): --model baseline | echo | модуль:Класс | файл.py:Класс.
 Шаги: перевод -> разбор и канон (S0) -> оценка характерной частоты узловым расчётом (эталона у
 пользователя нет) -> расчёт в MC12 через обвязку (S1) и измерения -> .CIR (spice2cir) -> открыть в MC12.
+--mode 2: подбор номиналов (docs/mode2_spec.md): ответ модели - нетлист с `?` и строкой `.SPEC` или одна `.SPEC`;
+номиналы считает synth.run, дальше подобранная схема идёт тем же путём, что в режиме 1.
 --opamp TL071C: на чертеже реальный ОУ с питанием (решение автора 16.11.2026, docs/gui_spec.md); тот же запуск MC12
 считает и обвязку с идеальным ОУ, и сам чертёж. Если реальный ОУ насытился бы по постоянному току (mna.saturation),
 чертёж остаётся с идеальным ОУ, а замечание объясняет почему.
@@ -22,7 +25,7 @@ from pathlib import Path
 if __package__ in (None, ""):  # запуск как скрипта: python src/mcnl/app.py
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mcnl import bench, canon, mc12run, measure, mna, score, spice2cir, translators  # noqa: E402
+from mcnl import bench, canon, mc12run, measure, mna, score, spice2cir, synth, translators  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 OPAMP_REAL = "TL071C"  # реальный ОУ на чертеже (выбор автора 16.11.2026): модель OPA уровня 3 из tiopamp.lbr MC12
@@ -98,18 +101,92 @@ def card_band(m):
 
 KIND_WORD = {"LP": "ФНЧ", "HP": "ФВЧ", "BP": "полосовой", "BS": "режекторный", "flat": "без частотной зависимости"}
 
+# Режим 2: схемы, которые строит synth (docs/mode2_spec.md, разделы 3-4), - короткие названия для замечаний
+TOPOLOGY_RU = {
+    "rc_lp": "RC ФНЧ", "rc_hp": "RC ФВЧ", "rl_lp": "RL ФНЧ", "rl_hp": "RL ФВЧ",
+    "rlc_series_lp": "последовательный RLC, ФНЧ", "rlc_series_hp": "последовательный RLC, ФВЧ",
+    "rlc_series_bp": "последовательный RLC, полосовой", "rlc_series_bs": "последовательный RLC, режекторный",
+    "active_lp_inv": "инвертирующий активный ФНЧ", "active_hp_inv": "инвертирующий активный ФВЧ",
+    "sallen_key_lp": "ФНЧ Саллена-Ки", "sallen_key_hp": "ФВЧ Саллена-Ки", "mfb_lp": "ФНЧ с МОС (Рауха)",
+    "mfb_hp": "ФВЧ с МОС", "mfb_bp": "полосовой с МОС", "twin_t": "двойной Т-мост",
+    "twin_t_active": "активный двойной Т-мост", "lc_ladder3": "LC-лестница 3-го порядка",
+    "lc_ladder5": "LC-лестница 5-го порядка",
+}
+MODE2_HINT = ("Режим 2: напишите тип фильтра и частоту («ФНЧ на 1 кГц», «активный полосовой на 5 кГц, Q = 5»), "
+              "при желании - схему и часть номиналов («Саллен-Ки, конденсаторы 10 нФ»); остальное подберёт программа.")
+
+
+def is_mode2_answer(text):
+    """Ответ режима 2: есть неизвестный номинал `?` или строка `.SPEC`. Нетлист без них - обычная схема (режим 1)."""
+    return any(l.strip().upper().startswith(".SPEC") or l.strip().endswith("?") for l in text.splitlines())
+
+
+def _hz(f):
+    for scale, unit in ((1e6, "МГц"), (1e3, "кГц"), (1, "Гц")):
+        if abs(f) >= scale or scale == 1:
+            return f"{f / scale:.3g} {unit}".replace(".", ",")
+
+
+def _value(key, v):
+    if key in ("fc", "f0"):
+        return _hz(v)
+    if key == "k_pass_db":
+        return f"{round(v, 1) + 0.0:+.1f} дБ".replace(".", ",")
+    return f"{v:.3g}".replace(".", ",")
+
+
+def synth_notes(s, answer, measured=None):
+    """Замечания режима 2: какая схема, какие номиналы подобраны, что задано и что получилось (MC12, если посчитан,
+    иначе узловой расчёт synth), замечания synth."""
+    lines = []
+    _, unknown, _, _ = synth.parse(answer)
+    top = s.get("topology") or ""
+    name = " + ".join(TOPOLOGY_RU.get(t, t) for t in top.split("+")) if top else "схема из запроса"
+    exact = s["spec"].get("series") == "EXACT"
+    rows = "точные значения" if exact else "R - ряд E24, C и L - E12"
+    if unknown:
+        vals = {e["name"]: e["value"] for e in canon.parse_netlist(s["netlist"])[0]}
+        picked = ", ".join(f"{n} = {vals[n]}" for n in unknown if n in vals)
+        lines.append(f"подбор номиналов ({name}; {rows}): {picked}")
+    else:  # схему по характеристикам выбрал код: показать её целиком (без источника)
+        body = "; ".join(l for l in s["netlist"].splitlines() if l.strip() and not l.startswith("V"))
+        lines.append(f"схему выбрала программа - {name}, номиналы подобраны ({rows}): {body}")
+    got = measured or s.get("achieved") or {}
+    where = "MC12" if measured else "узловой расчёт"
+    parts = []
+    for k, label in (("fc", "fc"), ("f0", "f0"), ("Q", "Q"), ("k_pass_db", "K")):
+        want = s.get("wanted", {}).get(k)
+        if want is None:
+            continue
+        have = got.get(k)
+        if have is None:
+            parts.append(f"{label} {_value(k, want)} - не измерено")
+            continue
+        dev = (f"{round(have - want, 1) + 0.0:+.1f} дБ" if k == "k_pass_db"
+               else f"{round((have / want - 1) * 100, 1) + 0.0:+.1f}%")
+        parts.append(f"{label} {_value(k, want)} -> {_value(k, have)} ({dev.replace('.', ',')})")
+    if parts:
+        lines.append(f"задано -> получено ({where}): " + "; ".join(parts))
+    return lines + list(s.get("notes", []))
+
 
 def run(prompt=None, translator=None, netlist=None, outdir=None, name="circuit", open_mc12=False, mc12=True,
-        opamp=None):
+        opamp=None, mode=1):
     """-> отчёт {prompt, model, output, parse_errors, netlist, f_char, run, measured, cir, messages}.
+    mode=2 - подбор номиналов: переводчик отвечает в режиме 2 (нетлист с `?` и `.SPEC`), synth.run подбирает номиналы,
+    отчёт synth - в synth, output - ответ модели, netlist - подобранная схема. С netlist=... текст с `?` или `.SPEC`
+    тоже идёт через synth (пересчёт правленого ответа), без них - обычная схема.
     opamp - модель реального ОУ для чертежа (OPAMP_REAL) или None (идеальный). С реальным ОУ: opamp - модель на
     чертеже (None, если пришлось оставить идеальный), run_real и measured - расчёт самого чертежа,
     measured_ideal - обвязки с идеальным ОУ; run - всегда обвязка (S1)."""
     outdir = Path(outdir or ROOT / "out" / "app")
     outdir.mkdir(parents=True, exist_ok=True)
-    rep = {"prompt": prompt, "model": getattr(translator, "name", None), "messages": []}
+    rep = {"prompt": prompt, "model": getattr(translator, "name", None), "messages": [], "mode": mode}
     if netlist is None:
-        out = translator.translate(prompt)
+        if mode == 2 and 2 not in getattr(translator, "modes", (1,)):
+            rep["messages"].append(f"переводчик {rep['model']} не умеет режим 2 (подбор номиналов)")
+            return rep
+        out = translator.translate(prompt, mode=2) if mode == 2 else translator.translate(prompt)
         fmt = getattr(translator, "output_format", "netlist")
     else:
         out, fmt = netlist, "netlist"
@@ -118,7 +195,21 @@ def run(prompt=None, translator=None, netlist=None, outdir=None, name="circuit",
     if refused:
         rep["refused"] = {"code": refused[0], "reason": refused[1]}
         rep["messages"].append(f"схема не построена: {refused[1] or refused[0]}")
+        if refused[0] == "needs_design" and mode == 1:
+            rep["messages"].append("номиналы не заданы - это задача режима 2 (подбор номиналов)")
         return rep
+    if mode == 2 and fmt == "netlist" and is_mode2_answer(out):
+        s = rep["synth"] = synth.run(out)
+        if "error" in s:
+            rep["messages"].append(f"номиналы не подобраны: {s['error']}")
+            if netlist is None:
+                rep["messages"].append(MODE2_HINT)
+            return rep
+        if s.get("route") == "designer":
+            rep["messages"].append("полосовой и режекторный фильтр выше 2-го порядка программа сама не считает - это "
+                                   "работа дизайнера MC12, а он в программу пока не подключён; задайте порядок 2")
+            return rep
+        out = s["netlist"]
     elems, errs = score.parse_output(out, fmt)
     rep["parse_errors"] = errs
     if elems is None:
@@ -184,6 +275,9 @@ def run(prompt=None, translator=None, netlist=None, outdir=None, name="circuit",
                         "(на графике - сплошная и пунктирная кривые)")
             else:
                 rep["messages"].append(f"MC12 не посчитал чертёж с {real}: " + "; ".join(rr["messages"]))
+    if rep.get("synth"):  # отклонения - по схеме с идеальным ОУ: под неё считались номиналы
+        rep["notes"] = synth_notes(rep["synth"], rep["output"], rep.get("measured_ideal") or rep.get("measured")) \
+            + rep["notes"]
     if open_mc12 and rep.get("cir"):
         exe = mc12run.find_exe()
         subprocess.Popen([exe, rep["cir"]], cwd=str(Path(exe).parent))
@@ -256,7 +350,7 @@ def main(argv):
         return argv[argv.index(key) + 1] if key in argv else default
     model = opt("--model", "baseline")
     netlist_file = opt("--netlist")
-    skip = {argv.index(k) + i for k in ("--model", "--netlist", "--out", "--name", "--opamp") if k in argv
+    skip = {argv.index(k) + i for k in ("--model", "--netlist", "--out", "--name", "--opamp", "--mode") if k in argv
             for i in (0, 1)}
     words = [a for i, a in enumerate(argv[1:], 1) if i not in skip and not a.startswith("--")]
     prompt = " ".join(words) or None
@@ -265,7 +359,7 @@ def main(argv):
         sys.exit(__doc__)
     tr = None if netlist else translators.load(model)
     rep = run(prompt, tr, netlist, opt("--out"), opt("--name", "circuit"), "--open" in argv, "--no-mc12" not in argv,
-              opt("--opamp"))
+              opt("--opamp"), int(opt("--mode", "1")))
     sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps(rep, ensure_ascii=False, indent=1))
 

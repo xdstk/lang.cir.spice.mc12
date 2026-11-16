@@ -35,10 +35,12 @@ def adapter_path(path):
     return str(last)
 
 
-def load(base, adapter=None, four_bit=True):
-    """-> (модель, токенизатор). bf16 - если поддерживается, иначе fp16 (GTX 1660 - только fp16)."""
+def load(base, adapter=None, four_bit=True, extra=None):
+    """-> (модель, токенизатор). bf16 - если поддерживается, иначе fp16 (GTX 1660 - только fp16).
+    extra - {имя: папка} ещё адаптеров на той же базе (программа: адаптер режима 2); переключение - set_adapter."""
     if adapter:
         adapter = adapter_path(adapter)  # до загрузки весов: ошибка видна сразу, а не через минуту
+    extra = {k: adapter_path(v) for k, v in (extra or {}).items()}
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
     tok = AutoTokenizer.from_pretrained(base)
@@ -55,6 +57,9 @@ def load(base, adapter=None, four_bit=True):
     if adapter:
         from peft import PeftModel
         model = PeftModel.from_pretrained(model, adapter)
+        for name, path in extra.items():
+            model.load_adapter(path, adapter_name=name)
+        model.set_adapter("default")
     model.eval()
     return model, tok
 
