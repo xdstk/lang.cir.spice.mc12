@@ -2,6 +2,8 @@
 
 Дата: 2026-10-25. Код: `src/mcnl/app.py`, `src/mcnl/translators/`, `src/mcnl/evaluate.py`.
 
+Обновлено 16.11.2026: окно программы - `gui.py` (docs/gui_spec.md, запуск `run_gui.bat`); переводчик по умолчанию - Qwen3.5-4B с адаптером LoRA (`translators/hf_model.py`, окружение `..env-hf`, параметр `trained_on` - на чём обучен адаптер); режим 2 (подбор номиналов, `synth.py`) в программу ещё не подключён.
+
 ## Конвейер (`app.py`)
 
 ```
