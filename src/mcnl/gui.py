@@ -23,7 +23,7 @@ from tkinter import ttk
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mcnl import app, canon, measure, mc12run, translators  # noqa: E402
+from mcnl import app, canon, handbook, measure, mc12run, translators  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "out" / "gui"
@@ -104,6 +104,8 @@ RULES = [
     ("p", "Проверьте нетлист справа: его можно поправить и нажать «Пересчитать нетлист» - модель при этом не вызывается."),
     ("p", "Замечания под кнопками подскажут, если элемент висит в воздухе или выход ни к чему не подключён."),
     ("p", "«Открыть в MC12» показывает чертёж схемы в Micro-Cap 12."),
+    ("p", "Вкладка «Справочник» - схемы фильтров и ОУ: формулы, применение, достоинства и недостатки, пример с "
+          "чертежом и АЧХ из MC12 и готовые запросы для программы."),
     ("p", "С реальным ОУ на графике две АЧХ: сплошная - чертежа с TL071, пунктир - с идеальным ОУ. Расходятся они на "
           "высоких частотах, где у TL071 кончается полоса (около 3 МГц на единичном усилении)."),
     ("p", "Если реальный ОУ насытился бы (большое постоянное напряжение на входе, интегратор без резистора в обратной "
@@ -163,7 +165,8 @@ def plot_geometry(f, db, width, height, pad=(42, 10, 10, 24), span_db=80, also=N
     l, t, r, b = pad
     w, h = width - l - r, height - t - b
     x0, x1 = math.log10(pts[0][0]), math.log10(pts[-1][0])
-    top = math.ceil(max(d for _, d in pts) / 10) * 10 + 5  # шкалу задаёт основная кривая, вторая обрезается
+    # шкалу задаёт основная кривая, вторая обрезается; подъём меньше 0,5 дБ (Q чуть больше 0,707) шкалу не сдвигает
+    top = math.ceil((max(d for _, d in pts) - 0.5) / 10) * 10 + 5
     bottom = max(min(d for _, d in pts), top - span_db)
     bottom = math.floor(bottom / 10) * 10
 
@@ -312,6 +315,9 @@ class Window:
         self.tabs.pack(fill="both", expand=True, padx=6, pady=(6, 0))
         main = ttk.Frame(self.tabs, padding=10)
         self.tabs.add(main, text="Схема")
+        book = ttk.Frame(self.tabs, padding=10)
+        self.tabs.add(book, text="Справочник")
+        self._build_handbook(book)
         rules = ttk.Frame(self.tabs, padding=10)
         self.tabs.add(rules, text="Правила")
         self._build_rules(rules)
@@ -659,27 +665,143 @@ class Window:
         f, db, _ = measure.read_curve(out)
         also = measure.read_curve(ideal)[:2] if real and ideal and Path(ideal).exists() else None
         self.plot_title.set(plot_title(rep) if also else PLOT_TITLE)
-        w, h = c.winfo_width(), c.winfo_height()
-        pad = tuple(int(v * self.k) for v in (42, 10, 10, 24))
-        g = plot_geometry(f, db, w, h, pad, also=also)
-        for x, lab in g["xgrid"]:
-            c.create_line(x, pad[1], x, h - pad[3], fill="#eeede8")
-            edge = x > w - pad[2] - 30 * self.k  # подпись у правого края - влево от линии, чтобы не обрезалась
-            c.create_text(x, h - pad[3] / 2, text=lab, fill="#5f5e5a", font=("Segoe UI", 8),
-                          anchor="e" if edge else "center")
-        for y, lab in g["ygrid"]:
-            c.create_line(pad[0], y, w - pad[2], y, fill="#eeede8")
-            c.create_text(pad[0] - 6, y, text=lab, anchor="e", fill="#5f5e5a", font=("Segoe UI", 8))
-        c.create_text(pad[0] + 4, pad[1] + 4, text="дБ", anchor="w", fill="#888780", font=("Segoe UI", 8))
         m = (self.rep or {}).get("measured") or {}
         mark = m.get("fc") or (m.get("f0") if m.get("type") in ("BP", "BS") else None)
-        if mark and g.get("x"):
-            x = g["x"](mark)
-            c.create_line(x, pad[1], x, h - pad[3], fill="#888780", dash=(3, 3))
-        for line in g["lines"]:
-            c.create_line(*line, fill="#185fa5", width=2)
-        for line in g["also_lines"]:  # идеальный ОУ - пунктиром поверх: там, где кривые совпадают, видны обе
-            c.create_line(*line, fill="#5f5e5a", width=1, dash=(4, 3))
+        paint_plot(c, f, db, self.k, also, mark)
+
+    # --- справочник (handbook.py)
+    def _build_handbook(self, frame):
+        """Вкладка «Справочник»: слева список статей по группам, справа статья с чертежом и АЧХ из MC12."""
+        frame.columnconfigure(1, weight=1)
+        frame.rowconfigure(0, weight=1)
+        tree = ttk.Treeview(frame, show="tree", selectmode="browse")
+        tree.column("#0", width=int(260 * self.k))
+        tree.grid(row=0, column=0, sticky="ns", padx=(0, 10))
+        for g in handbook.GROUPS:
+            gid = tree.insert("", "end", text=g, open=True)
+            for a in handbook.ARTICLES:
+                if a["group"] == g:
+                    tree.insert(gid, "end", iid=a["id"], text=a["title"])
+        tree.bind("<<TreeviewSelect>>", lambda e: self._select_article(tree))
+        t = tk.Text(frame, wrap="word", font=("Segoe UI", 10), relief="flat", padx=14, pady=8,
+                    background=self.root.cget("background"), cursor="arrow")
+        bar = ttk.Scrollbar(frame, orient="vertical", command=t.yview)
+        t.configure(yscrollcommand=bar.set)
+        t.grid(row=0, column=1, sticky="nsew")
+        bar.grid(row=0, column=2, sticky="ns")
+        t.tag_configure("title", font=("Segoe UI", 15, "bold"), spacing3=6)
+        t.tag_configure("h", font=("Segoe UI", 11, "bold"), spacing1=12, spacing3=4)
+        t.tag_configure("p", spacing3=4)
+        t.tag_configure("li", lmargin1=8, lmargin2=24, spacing3=3)
+        t.tag_configure("mono", font=("Consolas", 10), lmargin1=12, lmargin2=12, spacing3=2)
+        t.tag_configure("cap", font=("Segoe UI", 9, "italic"), foreground="#5f5e5a", spacing3=4)
+        t.tag_configure("ex", font=("Segoe UI", 10, "italic"), lmargin1=8, lmargin2=8, spacing1=4)
+        self.book_text, self.book_keep = t, []
+        tree.selection_set(handbook.ARTICLES[0]["id"])
+
+    def _select_article(self, tree):
+        sel = tree.selection()
+        if sel and sel[0] in handbook.BY_ID:
+            self._show_article(handbook.BY_ID[sel[0]])
+
+    def _show_article(self, a):
+        t = self.book_text
+        t.configure(state="normal")
+        t.delete("1.0", "end")
+        for w in self.book_keep:  # кнопки и холст прошлой статьи
+            if hasattr(w, "destroy"):
+                w.destroy()
+        self.book_keep = []
+        t.insert("end", a["title"] + "\n", "title")
+        t.insert("end", a["summary"] + "\n", "p")
+        img = handbook.image(a)
+        if img:
+            photo = tk.PhotoImage(file=str(img))
+            self.book_keep.append(photo)
+            t.image_create("end", image=photo, pady=6)
+            t.insert("end", "\nСхема в MC12" + (" (ОУ TL071, питание ±15 В)" if a["opamp"] else "")
+                     + "; номиналы - в примере расчёта ниже\n", "cap")
+        t.insert("end", "Как работает\n", "h")
+        for par in a["principle"]:
+            t.insert("end", par + "\n", "p")
+        t.insert("end", "Элементы\n", "h")
+        for name, role in a["elements"]:
+            t.insert("end", f"{name} - {role}\n", "li")
+        t.insert("end", "Формулы\n", "h")
+        for line in a["formulas"]:
+            t.insert("end", line + "\n", "mono")
+        for key, head in handbook.SECTIONS:
+            if a.get(key):
+                t.insert("end", head + "\n", "h")
+                for item in a[key]:
+                    t.insert("end", "•  " + item + "\n", "li")
+        t.insert("end", "Пример расчёта\n", "h")
+        t.insert("end", a["example"] + "\n", "p")
+        data = handbook.curve(a)
+        if data:
+            c = tk.Canvas(t, width=int(600 * self.k), height=int(240 * self.k), background="white",
+                          highlightthickness=1, highlightbackground="#d3d1c7")
+            also = (data["f"], data["db_ideal"]) if "db_ideal" in data else None
+            mark = a["check"].get("fc") or a["check"].get("f0")
+            c.bind("<Configure>", lambda e, c=c: paint_plot(c, data["f"], data["db"], self.k, also, mark))
+            self.book_keep.append(c)
+            t.window_create("end", window=c, pady=4)
+            t.insert("end", "\nАЧХ для этих номиналов, расчёт MC12" + ("; сплошная - с TL071, пунктир - идеальный ОУ"
+                                                             if also else "") + "\n", "cap")
+        t.insert("end", "Как запросить в программе\n", "h")
+        for mode, prompt in a["prompts"]:
+            t.insert("end", f"{MODE_NAMES[mode].capitalize()}: «{prompt}»  ", "ex")
+            b = ttk.Button(t, text="В запрос", command=lambda s=prompt, m=mode: self.use_example(s, m))
+            self.book_keep.append(b)
+            t.window_create("end", window=b)
+            t.insert("end", "\n")
+        b = ttk.Button(t, text="Открыть пример в MC12", command=lambda: self._open_example(a))
+        self.book_keep.append(b)
+        t.insert("end", "\n")
+        t.window_create("end", window=b, pady=6)
+        t.insert("end", "\n")
+        t.configure(state="disabled")
+        t.yview_moveto(0)
+
+    def _open_example(self, a):
+        """Чертёж примера - копия в out/gui/handbook (MC12 пишет рядом служебные файлы), открыть в MC12."""
+        try:
+            exe = mc12run.find_exe()
+        except FileNotFoundError as err:
+            self.status.set(str(err))
+            return
+        dst = OUT / "handbook" / f"{a['id']}.cir"
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes((handbook.DIR / f"{a['id']}.cir").read_bytes())
+        subprocess.Popen([exe, str(dst)], cwd=str(Path(exe).parent))
+        self.status.set(f"Пример открыт в MC12: {dst}")
+
+
+def paint_plot(c, f, db, k=1.0, also=None, mark=None):
+    """АЧХ на холсте: сетка и подписи, отметка частоты mark (пунктир), основная кривая и пунктиром also - кривая
+    с идеальным ОУ. Общая для главной вкладки и справочника."""
+    c.delete("all")
+    w, h = c.winfo_width(), c.winfo_height()
+    if w < 10:  # холст ещё не показан - размер из параметров
+        w, h = int(c.cget("width")), int(c.cget("height"))
+    pad = tuple(int(v * k) for v in (42, 10, 10, 24))
+    g = plot_geometry(f, db, w, h, pad, also=also)
+    for x, lab in g["xgrid"]:
+        c.create_line(x, pad[1], x, h - pad[3], fill="#eeede8")
+        edge = x > w - pad[2] - 30 * k  # подпись у правого края - влево от линии, чтобы не обрезалась
+        c.create_text(x, h - pad[3] / 2, text=lab, fill="#5f5e5a", font=("Segoe UI", 8),
+                      anchor="e" if edge else "center")
+    for y, lab in g["ygrid"]:
+        c.create_line(pad[0], y, w - pad[2], y, fill="#eeede8")
+        c.create_text(pad[0] - 6, y, text=lab, anchor="e", fill="#5f5e5a", font=("Segoe UI", 8))
+    c.create_text(pad[0] + 4, pad[1] + 4, text="дБ", anchor="w", fill="#888780", font=("Segoe UI", 8))
+    if mark and g.get("x"):
+        x = g["x"](mark)
+        c.create_line(x, pad[1], x, h - pad[3], fill="#888780", dash=(3, 3))
+    for line in g["lines"]:
+        c.create_line(*line, fill="#185fa5", width=2)
+    for line in g["also_lines"]:  # идеальный ОУ - пунктиром поверх: там, где кривые совпадают, видны обе
+        c.create_line(*line, fill="#5f5e5a", width=1, dash=(4, 3))
 
 
 def dpi_aware():

@@ -97,10 +97,15 @@ def rotate(x, y, rot):
     return x, y
 
 
+# Style атрибута (проверено 16.11.2026 выгрузкой /IC): 8192 - видно значение, 256 - скрыт, 12288 - «ИМЯ=значение»
+STYLE_SHOWN, STYLE_HIDDEN = 8192, 256
+
+
 def _comp(name, x, y, rot, attrs):
+    """attrs: [(смещение, имя, значение)] или [(смещение, имя, значение, Style)]."""
     s = [f"[Comp]\nName={name}\nGrid={x},{y}\nRot={rot}"]
-    for (ox, oy), key, val in attrs:
-        s.append(f"[Attr]\nON={ox},{oy},{key}\nV={val}\nStyle=8192")
+    for (ox, oy), key, val, *style in attrs:
+        s.append(f"[Attr]\nON={ox},{oy},{key}\nV={val}\nStyle={style[0] if style else STYLE_SHOWN}")
     return "\n\n".join(s)
 
 
@@ -690,9 +695,15 @@ def _templates():
     return [b.strip() for b in re.split(r"\n(?=\[)", text) if b.startswith(("[shapedef]", "[compdef]"))]
 
 
-def build(netlist, f_char=None, title="spice2cir", wires=True, opamp=None, numeric=False):
+def build(netlist, f_char=None, title="spice2cir", wires=True, opamp=None, numeric=False, note=True, values=True,
+          scale=None):
     """Нетлист -> текст .CIR. opamp - модель реального ОУ (power) вместо идеального; numeric - числовой вывод АЧХ и ФЧХ
-    в файл (.ANO) для расчёта в пакетном режиме: так программа читает результат самого чертежа."""
+    в файл (.ANO) для расчёта в пакетном режиме: так программа читает результат самого чертежа; note=False - без
+    текста с нетлистом справа от схемы (картинки справочника); values=False - номиналы R, C, L и источника сигнала
+    на чертеже скрыты (схема «в общем виде», считается как обычно; ОУ и питание подписаны); scale - масштаб окна
+    схемы (шаг MC12 из SCALES) вместо подобранного по размеру: картинка /IC выгружается в этом масштабе."""
+    if scale is not None and scale not in SCALES:
+        raise ValueError(f"масштаб {scale}: MC12 принимает только {SCALES}")
     elems, err = canon.parse_netlist(netlist)
     if err:
         raise ValueError("; ".join(err))
@@ -707,24 +718,27 @@ def build(netlist, f_char=None, title="spice2cir", wires=True, opamp=None, numer
                   or any(e["name"].upper() in SUPPLY_PART.values() for e in elems)):
         raise ValueError(f"имена {', '.join(SUPPLY)}, {', '.join(SUPPLY_PART.values())} заняты питанием реального ОУ")
     drawing = draw(layout(elems, opamp), wires)
-    note = [f"{title}: netlist (spice2cir)"] + netlist.strip().splitlines()
+    show_note, note = note, [f"{title}: netlist (spice2cir)"] + netlist.strip().splitlines()
     if opamp:
         note.append(f"Opamp {opamp} instead of ideal, supply VCC = +{SUPPLY_V} V, VEE = -{SUPPLY_V} V")
     note.append("AC analysis: Alt+2")
-    scale = view_scale(drawing, note)
+    scale = scale or view_scale(drawing, note if show_note else [""])
     for p in drawing.placed:
         e = p.e
         name, vattr = COMP["V" if e["type"] in "VI" else e["type"]]
         part, value = _attr_texts(e)
         (op, ov) = ATTRS[p.kind]
-        parts.append(_comp(name, p.x, p.y, p.rot, [(op, "PART", part), (ov, vattr, value)]))
+        hide = not values and (e["type"] in "RCL" or e["type"] in "VI" and e["name"] not in SUPPLY_PART.values())
+        parts.append(_comp(name, p.x, p.y, p.rot, [(op, "PART", part),
+                                                   (ov, vattr, value, STYLE_HIDDEN if hide else STYLE_SHOWN)]))
     for pt, gd, _ in drawing.grounds:
         parts.append(_comp("Ground", pt[0], pt[1], GROUND_ROT[gd], []))
     for (x0, y0), (x1, y1), _ in drawing.wires:
         parts.append(f"[Wire]\nGrids={x0},{y0},{x1},{y1}")
     for text, (x, y), _ in drawing.labels:
         parts.append(_text([text], x, y))
-    parts.append(_text(note, *note_place(drawing, note)))
+    if show_note:
+        parts.append(_text(note, *note_place(drawing, note)))
     fl, fh = bench.ac_range(f_char)
     parts.append("[Section]\nIndex=0\nName=\"spice2cir\"\nType=Main\nEnable=True")
     for i, (pname, extra) in enumerate((("Main", ""), ("Text", "Type=Text\n"), ("Models", "Type=Text\n"),

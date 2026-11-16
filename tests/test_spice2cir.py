@@ -226,6 +226,9 @@ class Build(unittest.TestCase):
         self.assertEqual(text.count("Options=OUTPUT,LINEARY"), 2)
         self.assertIn("YExp=PH(V(OUT))", text)
         self.assertNotIn("OUTPUT", spice2cir.build(RC, 1591.5))
+        # картинки справочника: без текста нетлиста справа от схемы
+        self.assertIn("netlist (spice2cir)", spice2cir.build(RC, 1591.5))
+        self.assertNotIn("netlist (spice2cir)", spice2cir.build(RC, 1591.5, note=False))
 
 
 def mc12_available():
