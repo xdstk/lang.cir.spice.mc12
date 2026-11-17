@@ -18,20 +18,38 @@ def native_bf16():
     return torch.cuda.is_available() and torch.cuda.is_bf16_supported(including_emulation=False)
 
 
+ADAPTER_WEIGHTS = ("adapter_model.safetensors", "adapter_model.bin")
+
+
+def adapter_missing(folder):
+    """Чего не хватает папке адаптера: [] - полная. Без файла весов PEFT принимает папку за имя репозитория
+    Hugging Face и падает с непонятной HFValidationError (17.11.2026, q35_4b_v32_m1: на Drive после конца сессии
+    остался adapter_config.json без adapter_model.safetensors - 130 МБ не успели выгрузиться)."""
+    missing = [] if (folder / "adapter_config.json").exists() else ["adapter_config.json"]
+    if not any((folder / w).exists() for w in ADAPTER_WEIGHTS):
+        missing.append(ADAPTER_WEIGHTS[0])
+    return missing
+
+
 def adapter_path(path):
-    """Папка адаптера с adapter_config.json. Если его нет, берётся последняя контрольная точка того же запуска
-    (<RUN>/checkpoints/checkpoint-N): на Drive после обрыва сессии в adapter/ остался один файл весов."""
+    """Папка адаптера с adapter_config.json и файлом весов. Если чего-то нет, берётся последняя полная контрольная
+    точка того же запуска (<RUN>/checkpoints/checkpoint-N): на Drive после обрыва сессии в adapter/ оставался
+    то один файл весов (smoke1), то одна настройка без весов (q35_4b_v32_m1)."""
     import re
     from pathlib import Path
     p = Path(path)
-    if (p / "adapter_config.json").exists():
+    missing = adapter_missing(p)
+    if not missing:
         return str(p)
     found = [c for c in (p.parent / "checkpoints").glob("checkpoint-*")
-             if re.fullmatch(r"checkpoint-\d+", c.name) and (c / "adapter_config.json").exists()]
+             if re.fullmatch(r"checkpoint-\d+", c.name) and not adapter_missing(c)]
     if not found:
-        raise FileNotFoundError(f"нет adapter_config.json ни в {p}, ни в {p.parent / 'checkpoints'}")
+        raise FileNotFoundError(
+            f"адаптер неполный: в {p} нет {', '.join(missing)}, полных контрольных точек в {p.parent / 'checkpoints'} нет. "
+            "Если обучение только что кончилось в другой сессии - Drive мог ещё не выгрузить файл; после обучения "
+            "контрольные точки удаляются в корзину Drive, последнюю (с наибольшим N) можно восстановить оттуда")
     last = max(found, key=lambda c: int(c.name.split("-")[1]))
-    print(f"в {p} нет adapter_config.json, беру контрольную точку {last}", flush=True)
+    print(f"в {p} нет {', '.join(missing)}, беру контрольную точку {last}", flush=True)
     return str(last)
 
 

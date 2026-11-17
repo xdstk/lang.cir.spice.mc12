@@ -166,9 +166,25 @@ class AdapterPath(unittest.TestCase):
         for n in (100, 125):
             (run / "checkpoints" / f"checkpoint-{n}").mkdir(parents=True)
             (run / "checkpoints" / f"checkpoint-{n}" / "adapter_config.json").write_text("{}")
+            (run / "checkpoints" / f"checkpoint-{n}" / "adapter_model.safetensors").write_bytes(b"")
         self.assertEqual(Path(hf_runtime.adapter_path(run / "adapter")).name, "checkpoint-125")
         (run / "adapter" / "adapter_config.json").write_text("{}")
         self.assertEqual(Path(hf_runtime.adapter_path(run / "adapter")).name, "adapter")
+
+    def test_config_without_weights(self):
+        """q35_4b_v32_m1 (17.11.2026): настройка есть, весов нет - PEFT иначе уходит искать репозиторий на Hub."""
+        run = WORK / "adapter_run_noweights"
+        shutil.rmtree(run, ignore_errors=True)
+        (run / "adapter").mkdir(parents=True)
+        (run / "adapter" / "adapter_config.json").write_text("{}")
+        with self.assertRaisesRegex(FileNotFoundError, "adapter_model.safetensors"):
+            hf_runtime.adapter_path(run / "adapter")
+        (run / "checkpoints" / "checkpoint-150").mkdir(parents=True)  # неполная точка не годится
+        (run / "checkpoints" / "checkpoint-150" / "adapter_config.json").write_text("{}")
+        with self.assertRaises(FileNotFoundError):
+            hf_runtime.adapter_path(run / "adapter")
+        (run / "checkpoints" / "checkpoint-150" / "adapter_model.safetensors").write_bytes(b"")
+        self.assertEqual(Path(hf_runtime.adapter_path(run / "adapter")).name, "checkpoint-150")
 
     def test_nothing_found(self):
         with self.assertRaises(FileNotFoundError):
