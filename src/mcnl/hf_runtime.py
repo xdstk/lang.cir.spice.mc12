@@ -53,6 +53,40 @@ def adapter_path(path):
     return str(last)
 
 
+def _checkpoints(folder):
+    from pathlib import Path
+    folder = Path(folder)
+    if not folder.exists():
+        return []
+    return [d for d in folder.glob("checkpoint-*") if d.is_dir() and d.name.split("-")[-1].isdigit()]
+
+
+def checkpoint_complete(d):
+    """С контрольной точки можно продолжать обучение: есть состояние Trainer и оптимизатора."""
+    return (d / "trainer_state.json").exists() and (d / "optimizer.pt").exists()
+
+
+def last_complete(folder):
+    """Последняя полная контрольная точка (путь) или None. Папка без файлов бывает, когда Drive перестал принимать
+    запись (08.11.2026: кончилось место, `checkpoint-150` Phi-4-mini осталась пустой) - с неё продолжать нельзя."""
+    done = [d for d in _checkpoints(folder) if checkpoint_complete(d)]
+    return str(max(done, key=lambda d: int(d.name.split("-")[-1]))) if done else None
+
+
+def drop_incomplete(folder):
+    """Удалить неполные контрольные точки -> [удалённые]. Продолжать с них нельзя, а Trainer при save_total_limit
+    упорядочивает точки по номеру и не трогает последнюю по номеру (transformers.trainer_utils.rotate_checkpoints):
+    пустые checkpoint-400...500 прерванного запуска (q35_4b_v32_m1, 17.11.2026) удаляли бы и точку продолжения 300,
+    и каждую новую - после обрыва сессии продолжать было бы не с чего."""
+    import shutil
+    gone = []
+    for d in sorted(_checkpoints(folder), key=lambda d: int(d.name.split("-")[-1])):
+        if not checkpoint_complete(d):
+            shutil.rmtree(d, ignore_errors=True)
+            gone.append(str(d))
+    return gone
+
+
 def load(base, adapter=None, four_bit=True, extra=None):
     """-> (модель, токенизатор). bf16 - если поддерживается, иначе fp16 (GTX 1660 - только fp16).
     extra - {имя: папка} ещё адаптеров на той же базе (программа: адаптер режима 2); переключение - set_adapter."""

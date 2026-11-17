@@ -93,17 +93,6 @@ def collate(pad_id):
     return fn
 
 
-def last_complete(folder):
-    """Последняя полная контрольная точка или None. Папка без файлов бывает, когда Drive перестал принимать запись
-    (08.11.2026: кончилось место, `checkpoint-150` Phi-4-mini осталась пустой) - с неё продолжать нельзя."""
-    folder = Path(folder)
-    if not folder.exists():
-        return None
-    done = [d for d in folder.glob("checkpoint-*") if (d / "trainer_state.json").exists() and (d / "optimizer.pt").exists()
-            and d.name.split("-")[-1].isdigit()]
-    return str(max(done, key=lambda d: int(d.name.split("-")[-1]))) if done else None
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True)
@@ -156,7 +145,9 @@ def main():
         save_total_limit=2, report_to=[], seed=a.seed, remove_unused_columns=False,
         prediction_loss_only=True,  # на dev нужны только потери: логиты всей выборки в память не поместятся
         gradient_checkpointing=True, gradient_checkpointing_kwargs={"use_reentrant": False})
-    last = last_complete(out / "checkpoints")
+    for d in hf_runtime.drop_incomplete(out / "checkpoints"):
+        print("неполная контрольная точка удалена:", d, flush=True)
+    last = hf_runtime.last_complete(out / "checkpoints")
     clock = SessionClock(out / "time.json", int(last.rsplit("-", 1)[1]) if last else 0)
     trainer = Trainer(model=model, args=args, train_dataset=train, eval_dataset=dev, data_collator=collate(tok.pad_token_id),
                       callbacks=[clock])

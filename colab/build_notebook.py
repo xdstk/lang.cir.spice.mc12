@@ -47,6 +47,13 @@ RUNS = {
                       "answers": "v32_m1",
                       "about": "Адаптер режима 1 на v3.2: как `q35_4b_v31_m1`, но у половины кратких запросов Саллен-Ки сняты "
                                "подписи ролей (C1(ос) -> C1). Ответы - только на выборки для наблюдения (решение автора 15.11.2026)."},
+    # продолжение q35_4b_v32_m1 в той же папке Drive: адаптер шагов 400-500 не выгрузился (docs/stage2_plan.md, «Итоги 17.11.2026»)
+    "q35_4b_v32_m1c300": {"model": "Qwen/Qwen3.5-4B", "subset": 2000, "limit": 0, "epochs": 2, "data": "v3_2/mode1", "instr": "v3",
+                          "answers": "v32_m1", "drive": "q35_4b_v32_m1", "resume": True,
+                          "about": "Дообучение `q35_4b_v32_m1` с `checkpoint-300`: 16.11.2026 обучение прошло все 500 шагов, но на Drive "
+                                   "не попали веса после шага 350 и итоговый адаптер; ответы 17.11 дала промежуточная точка 350. "
+                                   "Папка на Drive та же (`mcnl/q35_4b_v32_m1`), настройки те же, осталось 200 шагов (около часа). "
+                                   "Номера ячеек - как в `stage2_q35_4b_v32_m1`; пробы (4, 5) и быстрой проверки (9) здесь нет."},
 }
 
 
@@ -54,7 +61,7 @@ def settings(run, r):
     data = r.get("data", "v2")
     return "\n".join([
         f"MODEL = '{r['model']}'",
-        f"RUN = '{run}'".ljust(23) + "# папка на Drive",
+        f"RUN = '{r.get('drive', run)}'".ljust(23) + "# папка на Drive",
         f"DATA = 'data/dataset/{data}'  # датасет обучения",
         f"INSTR = '{r.get('instr', data)}'".ljust(23) + "# инструкция модели при ответах: как при обучении",
         f"SUBSET = {r['subset']}".ljust(23) + "# подмножество train: 1000, 2000 или 3000",
@@ -82,6 +89,38 @@ import os
 A = f'--model {{MODEL}} --adapter {{OUT}}/adapter --format {{FORMAT}} --name {{RUN}} --instructions {{INSTR}}'
 if os.path.exists('data/program_prompts/program.jsonl'):
     !python colab/predict.py {{A}} --records data/program_prompts/program.jsonl --mode {mode} --out {{OUT}}/program.jsonl
+"""),
+    ]
+
+
+def prepare(r):
+    """Продолжение прерванного запуска в той же папке Drive: ответы промежуточной точки - в ckpt350/, run.json и adapter/ без
+    весов - удалить (иначе ячейка 6 скажет «уже обучена», а predict.py пропустит записи, на которые ответ уже есть).
+    Повторный запуск ячейки после обрыва ничего не трогает: признак - run.json есть, а весов адаптера нет."""
+    if not r.get("resume"):
+        return []
+    return [
+        md("## 3а. Подготовка к продолжению\nОдин раз перед ячейкой 6; после обрыва сессии её можно запускать снова - готовый "
+           "адаптер и новые ответы она не трогает. Ответы точки 350 переносятся в `ckpt350/`. Неполные контрольные точки "
+           "(350 без `optimizer.pt`, пустые 400-500) удалит сама ячейка 6: с ними Trainer удалял бы точку продолжения и новые точки."),
+        code("""
+import glob, os, shutil, sys
+sys.path.insert(0, 'src')
+from mcnl import hf_runtime
+if os.path.exists(f'{OUT}/adapter/adapter_model.safetensors'):
+    print('адаптер с весами есть: обучение закончено, ячейку 6 можно пропустить')
+else:
+    if os.path.exists(f'{OUT}/run.json'):  # run.json без весов адаптера - след прерванной выгрузки
+        os.makedirs(f'{OUT}/ckpt350', exist_ok=True)
+        old = glob.glob(f'{OUT}/*.jsonl') + glob.glob(f'{OUT}/loss.png')
+        for f in old:
+            shutil.move(f, f'{OUT}/ckpt350/' + os.path.basename(f))
+        os.remove(f'{OUT}/run.json')
+        shutil.rmtree(f'{OUT}/adapter', ignore_errors=True)
+        print(f'ответы точки 350 ({len(old)} файлов) -> ckpt350/; run.json и adapter/ без весов удалены')
+    else:
+        print('подготовка уже сделана')
+    print('ячейка 6 продолжит с', hf_runtime.last_complete(f'{OUT}/checkpoints') or 'нуля: полных контрольных точек нет (около 2,4 ч)')
 """),
     ]
 
@@ -234,6 +273,19 @@ if done.returncode:
 """),
     md("## 3. Настройки"),
     code(settings(run, r)),
+    *prepare(r),
+    *([] if r.get("resume") else probe_cells()),
+    md("## 6. Обучение\n`loss` должен падать; `nan` или плато - ошибка." + (
+        "\n\nВ начале вывода - «неполная контрольная точка удалена: …» и «продолжаю с …/checkpoint-300»." if r.get("resume") else "")),
+    code("""
+!python colab/train_lora.py --model {MODEL} --data out/training/{RUN} --out {OUT} --epochs {EPOCHS} --seed {SEED} --batch {BATCH} --accum {ACCUM}
+"""),
+    *after_training(r),
+    ]
+
+
+def probe_cells():
+    return [
     md("""
 ## 4. Проба
 Шаблон чата и то, чему учится модель (только нетлист и знак конца реплики); затем 10 шагов обучения - память и время.
@@ -258,10 +310,11 @@ print(f'токенов в примере: медиана {lens[len(lens) // 2]},
     code("""
 !python colab/predict.py --model {MODEL} --format {FORMAT} --records {DATA}/dev.jsonl --limit 30 --out {OUT}/untrained_dev.jsonl --name untrained --instructions {INSTR}
 """),
-    md("## 6. Обучение\n`loss` должен падать; `nan` или плато - ошибка."),
-    code("""
-!python colab/train_lora.py --model {MODEL} --data out/training/{RUN} --out {OUT} --epochs {EPOCHS} --seed {SEED} --batch {BATCH} --accum {ACCUM}
-"""),
+    ]
+
+
+def after_training(r):
+    return [
     md("## 7. График обучения\nСохраняется на Drive как `loss.png`."),
     code("""
 import json, matplotlib.pyplot as plt
@@ -286,6 +339,12 @@ A = f'--model {MODEL} --adapter {OUT}/adapter --format {FORMAT} --name {RUN} --i
 """ + ("" if r.get("mode") == 2 else """!python colab/predict.py {A} --records data/human_test/v1/paraphrase.jsonl --out {OUT}/paraphrase.jsonl
 """)),
     *answers_rest(r),
+    *([] if r.get("resume") else quick_check(r)),
+    ]
+
+
+def quick_check(r):
+    return [
     md("## 9. Быстрая проверка\nСовпадение строк ответа с эталоном без учёта порядка. Точная оценка - в MC12, отдельно."),
     code("""
 import sys

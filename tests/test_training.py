@@ -190,6 +190,26 @@ class AdapterPath(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             hf_runtime.adapter_path(WORK / "no_such_run" / "adapter")
 
+    def test_resume_checkpoints(self):
+        """q35_4b_v32_m1 (17.11.2026): полные 250 и 300, у 350 нет optimizer.pt, 400-500 пустые. Продолжать - с 300;
+        неполные удаляются, иначе Trainer (save_total_limit=2) берёг бы пустую 500 и удалял свежие точки."""
+        cps = WORK / "resume_run" / "checkpoints"
+        shutil.rmtree(cps.parent, ignore_errors=True)
+        for n in (250, 300, 350, 400, 450, 500):
+            (cps / f"checkpoint-{n}").mkdir(parents=True)
+        for n in (250, 300, 350):
+            (cps / f"checkpoint-{n}" / "trainer_state.json").write_text("{}")
+            (cps / f"checkpoint-{n}" / "adapter_model.safetensors").write_bytes(b"")
+        for n in (250, 300):
+            (cps / f"checkpoint-{n}" / "optimizer.pt").write_bytes(b"")
+        self.assertEqual(Path(hf_runtime.last_complete(cps)).name, "checkpoint-300")
+        gone = [Path(d).name for d in hf_runtime.drop_incomplete(cps)]
+        self.assertEqual(gone, ["checkpoint-350", "checkpoint-400", "checkpoint-450", "checkpoint-500"])
+        self.assertEqual(sorted(d.name for d in cps.iterdir()), ["checkpoint-250", "checkpoint-300"])
+        self.assertEqual(Path(hf_runtime.last_complete(cps)).name, "checkpoint-300")
+        self.assertIsNone(hf_runtime.last_complete(WORK / "no_such_run" / "checkpoints"))
+        self.assertEqual(hf_runtime.drop_incomplete(WORK / "no_such_run" / "checkpoints"), [])
+
 
 if __name__ == "__main__":
     unittest.main()
