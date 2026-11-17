@@ -34,6 +34,19 @@ DEFAULTS = {"base": "Qwen/Qwen3.5-4B", "adapter": str(ROOT / "out" / "q35_4b" / 
             "real_opamp": True}  # реальный ОУ на чертеже по умолчанию (решение автора 16.11.2026)
 MODE_NAMES = {1: "перевод описания", 2: "подбор номиналов"}
 QWEN, BASELINE = "Qwen3.5-4B (локально)", "baseline (проверка окна)"
+LLAMA = "Qwen3.5-4B (процессор)"  # та же модель через llama.cpp: без видеокарты и без torch (переносная версия)
+
+
+def translator_choices(root=None, torch_installed=None):
+    """Переводчики в списке окна и выбранный по умолчанию. Qwen через torch - если torch установлен; через llama.cpp -
+    если рядом есть llama-server и модели GGUF (translators.llama_server.find_runtime). Без torch (переносная версия)
+    по умолчанию - процессор."""
+    import importlib.util
+    from mcnl.translators.llama_server import find_runtime
+    torch_installed = importlib.util.find_spec("torch") is not None if torch_installed is None else torch_installed
+    llama = find_runtime(root or ROOT) is not None
+    names = ([QWEN] if torch_installed else []) + ([LLAMA] if llama else []) + [BASELINE]
+    return names, (QWEN if torch_installed else LLAMA if llama else BASELINE)
 KIND = {"LP": "ФНЧ", "HP": "ФВЧ", "BP": "полосовой", "BS": "режекторный", "flat": "без частотной зависимости"}
 EXAMPLE = "ФНЧ Саллена-Ки на повторителе: R1 10 кОм, R2 10 кОм, C1 (ОС) 22 нФ, C2 (земля) 10 нФ; сигнал на вход"
 # Меню «Примеры» (шаг 5): разные классы схем; все проверены на Qwen3.5-4B и MC12 07.11.2026 (тип, fc / f0, Q, K
@@ -298,6 +311,7 @@ class Window:
         self.settings = load_settings()
         OUT.mkdir(parents=True, exist_ok=True)
         root.title("mcnl - запрос в схему Micro-Cap")
+        self.icons = set_icon(root)
         k = float(root.tk.call("tk", "scaling")) / (96 / 72)  # масштаб экрана Windows: 1,0 при 100%, 1,25 при 125%
         root.geometry(f"{int(1180 * k)}x{int(720 * k)}")
         root.minsize(int(980 * k), int(600 * k))
@@ -349,8 +363,9 @@ class Window:
         row = ttk.Frame(left)
         row.pack(fill="x", pady=(0, 8))
         ttk.Label(row, text="Переводчик").pack(side="left")
-        self.choice = tk.StringVar(value=QWEN)
-        box = ttk.Combobox(row, textvariable=self.choice, values=[QWEN, BASELINE], state="readonly", width=28)
+        names, default = translator_choices()
+        self.choice = tk.StringVar(value=default)
+        box = ttk.Combobox(row, textvariable=self.choice, values=names, state="readonly", width=28)
         box.pack(side="left", padx=8)
         box.bind("<<ComboboxSelected>>", lambda e: self._select_translator())
         d = int(14 * self.k)
@@ -460,7 +475,8 @@ class Window:
         if name not in self.translators and name not in self.loading:  # после ошибки - новая попытка
             self.loading.add(name)
             self.load_errors.pop(name, None)
-            self.status.set(f"{name}: загрузка…" + (" (модель грузится около 30-45 с)" if name == QWEN else ""))
+            self.status.set(f"{name}: загрузка…" + (" (модель грузится около 30-45 с)" if name == QWEN else
+                                                     " (модель грузится; ответ на процессоре - до минуты)" if name == LLAMA else ""))
             threading.Thread(target=self._load_task, args=(name,), daemon=True).start()  # не ждёт запросов в очереди
         self._update_lamp()
 
@@ -570,6 +586,10 @@ class Window:
         t0 = time.time()
         if name == BASELINE:
             tr = translators.load("baseline")
+        elif name == LLAMA:
+            from mcnl.translators.llama_server import find_runtime
+            OUT.mkdir(parents=True, exist_ok=True)
+            tr = translators.load("llama", **find_runtime(ROOT), log=OUT / "llama-server.log")
         else:
             os.environ.setdefault("HF_HUB_OFFLINE", "1")  # модель уже в кэше, сеть не нужна
             st = self.settings
@@ -615,6 +635,8 @@ class Window:
             self.root.after(100, self._poll)
 
     def _gpu(self):
+        if self.choice.get() == LLAMA and LLAMA in self.translators:  # llama.cpp: на чём считает модель
+            return f", {getattr(self.translators[LLAMA], 'device', 'процессор')}"
         if QWEN not in self.translators:  # пока модель грузится, torch может быть импортирован не до конца
             return ""
         try:
@@ -806,6 +828,65 @@ def paint_plot(c, f, db, k=1.0, also=None, mark=None):
         c.create_line(*line, fill="#5f5e5a", width=1, dash=(4, 3))
 
 
+def icon_png(n):
+    """Иконка программы n x n (PNG с прозрачностью, стандартная библиотека): синий скруглённый квадрат, белая АЧХ
+    фильтра нижних частот и пунктир на частоте среза - как на графике окна. Вместо пера Tk (17.11.2026)."""
+    import struct
+    import zlib
+    import math
+    bg, light, white = (31, 95, 168), (150, 190, 235), (255, 255, 255)
+    m, xc, y0, y1, dec = 0.16, 0.50, 0.36, 0.78, 4.0  # поля, частота среза, уровни, декад на ширину иконки
+    db_end = 10 * math.log10(1 + 10 ** (4 * (1 - m - xc) * dec))  # ФНЧ 2-го порядка: 40 дБ/дек
+    scale = (y1 - y0) / db_end
+    half = max(1.3 / n, 0.04)  # полутолщина кривой
+
+    def curve(u):  # -> (v, dv/du): АЧХ Баттерворта 2-го порядка в логарифмическом масштабе
+        r4 = 10 ** (4 * (u - xc) * dec)
+        return y0 + scale * 10 * math.log10(1 + r4), scale * 40 * dec * r4 / (1 + r4)
+    ss = 4  # подвыборка на пиксель - сглаживание краёв
+
+    def inside(u, v, r=0.2, a=0.04):
+        cu, cv = min(max(u, a + r), 1 - a - r), min(max(v, a + r), 1 - a - r)
+        return (u - cu) ** 2 + (v - cv) ** 2 <= r * r and a <= u <= 1 - a and a <= v <= 1 - a
+
+    def color(u, v):
+        if not inside(u, v):
+            return None
+        if m <= u <= 1 - m:
+            f, df = curve(u)
+            if abs(v - f) / (1 + df * df) ** 0.5 <= half:
+                return white
+        if n >= 32 and abs(u - xc) <= 0.6 / n + 0.008 and 0.2 <= v <= 0.86 and int(v * 14) % 2 == 0:
+            return light
+        return bg
+
+    rows = bytearray()
+    for j in range(n):
+        rows.append(0)
+        for i in range(n):
+            acc, cnt = [0, 0, 0], 0
+            for sj in range(ss):
+                for si in range(ss):
+                    c = color((i + (si + 0.5) / ss) / n, (j + (sj + 0.5) / ss) / n)
+                    if c:
+                        cnt += 1
+                        acc = [a + b for a, b in zip(acc, c)]
+            rows += bytes([a // cnt for a in acc] if cnt else [0, 0, 0]) + bytes([round(255 * cnt / ss ** 2)])
+
+    def chunk(t, d):
+        return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xFFFFFFFF)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", n, n, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(bytes(rows), 9)) + chunk(b"IEND", b""))
+
+
+def set_icon(root):
+    """Иконка окна и панели задач. -> картинки (их надо держать, иначе Tk их выгрузит)."""
+    import base64
+    icons = [tk.PhotoImage(data=base64.b64encode(icon_png(s))) for s in (64, 48, 32, 16)]
+    root.iconphoto(True, *icons)
+    return icons
+
+
 def dpi_aware():
     """Windows: окно в настоящих пикселях экрана - иначе при масштабе 125-150% шрифты размыты."""
     try:
@@ -817,6 +898,11 @@ def dpi_aware():
 
 def main():
     dpi_aware()
+    try:  # своя группа на панели задач: иначе там значок pythonw.exe, а не иконка окна
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("mcnl.gui")
+    except (AttributeError, OSError):
+        pass
     root = tk.Tk()
     Window(root)
     root.mainloop()

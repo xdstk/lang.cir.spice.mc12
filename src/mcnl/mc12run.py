@@ -22,7 +22,9 @@ import time
 from pathlib import Path, PureWindowsPath
 
 ANALYSES = {"A": ".ANO", "T": ".TNO", "D": ".DNO"}
-DEFAULT_EXES = [r"C:\MC12\Micro-Cap 12.exe", r"C:\MC12\mc12.exe"]  # 64 бит, затем 32 бит
+# MC12 рядом с программой (переносная версия: <корень>/MC12), затем установленный; 64 бит, затем 32 бит
+_BUNDLED = Path(__file__).resolve().parents[2] / "MC12"
+DEFAULT_EXES = [str(_BUNDLED / "Micro-Cap 12.exe"), str(_BUNDLED / "mc12.exe"), r"C:\MC12\Micro-Cap 12.exe", r"C:\MC12\mc12.exe"]
 
 
 def find_exe(exe=None):

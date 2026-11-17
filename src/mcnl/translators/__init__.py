@@ -29,6 +29,7 @@ REGISTRY = {
     "baseline": "mcnl.translators.baseline:RuleBaseline",
     "echo": "mcnl.translators.echo:Echo",
     "hf": "mcnl.translators.hf_model:HFModel",  # обученная модель: load("hf", base=..., adapter=...)
+    "llama": "mcnl.translators.llama_server:LlamaServer",  # она же через llama.cpp (GGUF, процессор)
     "glm": "mcnl.translators.glm_api:GLMApi",  # справочная строка, API Z.ai: load("glm", model="glm-4.7-flash")
 }
 
