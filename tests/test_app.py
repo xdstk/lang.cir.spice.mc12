@@ -169,6 +169,9 @@ class App(unittest.TestCase):
                 self.assertEqual(rep["output"], training.answer_for(r))  # в окне правится ответ модели
                 self.assertTrue(rep["notes"][0].startswith(("подбор номиналов", "схему выбрала программа")), rep["notes"])
                 self.assertIn("задано -> получено (узловой расчёт)", rep["notes"][1])
+                if rep["notes"][0].startswith("схему выбрала программа"):  # имена - как на чертеже (17.11.2026)
+                    body = "; ".join(l for l in rep["netlist"].splitlines() if l.strip() and not l.startswith("V"))
+                    self.assertTrue(rep["notes"][0].endswith(body), (rep["notes"][0], rep["netlist"]))
             if kind == "message":
                 self.assertIn("дизайнер", rep["messages"][0])
         self.assertEqual(got, {("circuit", "netlist"): 24, ("named", "netlist"): 25, ("spec", "netlist"): 30,
@@ -184,6 +187,11 @@ class App(unittest.TestCase):
         rep = app.run(netlist=".SPEC type=LP fc=2k", outdir=out, name="m2_edit", mc12=False, mode=2)
         self.assertEqual(rep["synth"]["topology"], "rc_lp")
         self.assertIn("fc 2 кГц -> 2", rep["notes"][1])
+        self.assertFalse(any("схема из ответа модели" in n for n in rep["notes"]), rep["notes"])
+        # ответ m2 v3.1 на «RL-фильтр верхних частот на 16 кГц» (program-009): RL ФНЧ при type=HP - замечание
+        rep = app.run(netlist="V1 IN 0 DC 0\nR1 OUT 0 ?\nL1 IN OUT 10m\n.SPEC type=HP fc=16k", outdir=out,
+                      name="m2_type", mc12=False, mode=2)
+        self.assertTrue(any("задан ФВЧ, а схема из ответа модели - ФНЧ" in n for n in rep["notes"]), rep["notes"])
         # нетлист без ? и .SPEC в режиме 2 - обычная схема
         rep = app.run(netlist=RC, outdir=out, name="m2_plain", mc12=False, mode=2)
         self.assertNotIn("synth", rep)

@@ -135,9 +135,10 @@ def _value(key, v):
     return f"{v:.3g}".replace(".", ",")
 
 
-def synth_notes(s, answer, measured=None):
+def synth_notes(s, answer, measured=None, shown=None):
     """Замечания режима 2: какая схема, какие номиналы подобраны, что задано и что получилось (MC12, если посчитан,
-    иначе узловой расчёт synth), замечания synth."""
+    иначе узловой расчёт synth), замечания synth. shown - нетлист чертежа (после canon.canonicalize): схему, выбранную
+    программой, замечание перечисляет под теми же именами, что на чертеже."""
     lines = []
     _, unknown, _, _ = synth.parse(answer)
     top = s.get("topology") or ""
@@ -149,7 +150,7 @@ def synth_notes(s, answer, measured=None):
         picked = ", ".join(f"{n} = {vals[n]}" for n in unknown if n in vals)
         lines.append(f"подбор номиналов ({name}; {rows}): {picked}")
     else:  # схему по характеристикам выбрал код: показать её целиком (без источника)
-        body = "; ".join(l for l in s["netlist"].splitlines() if l.strip() and not l.startswith("V"))
+        body = "; ".join(l for l in (shown or s["netlist"]).splitlines() if l.strip() and not l.startswith("V"))
         lines.append(f"схему выбрала программа - {name}, номиналы подобраны ({rows}): {body}")
     got = measured or s.get("achieved") or {}
     where = "MC12" if measured else "узловой расчёт"
@@ -167,6 +168,11 @@ def synth_notes(s, answer, measured=None):
         parts.append(f"{label} {_value(k, want)} -> {_value(k, have)} ({dev.replace('.', ',')})")
     if parts:
         lines.append(f"задано -> получено ({where}): " + "; ".join(parts))
+    want_type, got_type = s.get("wanted", {}).get("type"), got.get("type")
+    if want_type and got_type and want_type != got_type:  # 17.11.2026: m2 v3.1 собрал RL ФНЧ на «RL ФВЧ на 16 кГц»
+        lines.append(f"задан {KIND_WORD.get(want_type, want_type)}, а схема из ответа модели - "
+                     f"{KIND_WORD.get(got_type, got_type)} ({where}): номиналы подобраны под частоту, "
+                     "но соединения не те - проверьте ответ модели")
     return lines + list(s.get("notes", []))
 
 
@@ -276,8 +282,8 @@ def run(prompt=None, translator=None, netlist=None, outdir=None, name="circuit",
             else:
                 rep["messages"].append(f"MC12 не посчитал чертёж с {real}: " + "; ".join(rr["messages"]))
     if rep.get("synth"):  # отклонения - по схеме с идеальным ОУ: под неё считались номиналы
-        rep["notes"] = synth_notes(rep["synth"], rep["output"], rep.get("measured_ideal") or rep.get("measured")) \
-            + rep["notes"]
+        rep["notes"] = synth_notes(rep["synth"], rep["output"], rep.get("measured_ideal") or rep.get("measured"),
+                                   rep.get("netlist")) + rep["notes"]
     if open_mc12 and rep.get("cir"):
         exe = mc12run.find_exe()
         subprocess.Popen([exe, rep["cir"]], cwd=str(Path(exe).parent))

@@ -23,14 +23,14 @@ from tkinter import ttk
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mcnl import app, canon, handbook, handbook_schematics, measure, mc12run, schematic, translators  # noqa: E402
+from mcnl import app, canon, handbook, handbook_schematics, hf_runtime, measure, mc12run, schematic, translators  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "out" / "gui"
-# адаптер режима 1 (trained_on - на чём обучен: инструкция), адаптер режима 2 - на той же базе; пока m2 v3.1 не обучен -
-# общая модель v3 (docs/mode2_spec.md, раздел 9); нет папки - режим 2 у Qwen недоступен
+# адаптер режима 1 (trained_on - на чём обучен: инструкция), адаптер режима 2 - на той же базе: q35_4b_v31_m2 (17.11.2026,
+# docs/mode2_spec.md, раздел 9); нет папки или в ней нет весов - режим 2 у Qwen недоступен, режим 1 работает
 DEFAULTS = {"base": "Qwen/Qwen3.5-4B", "adapter": str(ROOT / "out" / "q35_4b" / "adapter"), "trained_on": "v2",
-            "adapter_mode2": str(ROOT / "out" / "q35_4b_v3" / "adapter"), "trained_on_mode2": "v3",
+            "adapter_mode2": str(ROOT / "out" / "q35_4b_v31_m2" / "adapter"), "trained_on_mode2": "v3",
             "real_opamp": True}  # реальный ОУ на чертеже по умолчанию (решение автора 16.11.2026)
 MODE_NAMES = {1: "перевод описания", 2: "подбор номиналов"}
 QWEN, BASELINE = "Qwen3.5-4B (локально)", "baseline (проверка окна)"
@@ -574,7 +574,8 @@ class Window:
             os.environ.setdefault("HF_HUB_OFFLINE", "1")  # модель уже в кэше, сеть не нужна
             st = self.settings
             m2 = st.get("adapter_mode2")
-            m2 = m2 if m2 and Path(m2).exists() else None  # нет адаптера режима 2 - режим 2 только у модели на v3
+            # нет адаптера режима 2 (или недокачан: без весов) - режим 2 только у модели на v3; модель режима 1 грузится
+            m2 = m2 if m2 and not hf_runtime.adapter_missing(Path(m2)) else None
             tr = translators.load("hf", base=st["base"], adapter=st["adapter"], trained_on=st.get("trained_on", "v2"),
                                   adapter_mode2=m2, trained_on_mode2=st.get("trained_on_mode2", "v3"))
         self.translators[name] = tr
