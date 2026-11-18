@@ -12,6 +12,7 @@ import json
 import math
 import os
 import queue
+import shutil
 import subprocess
 import sys
 import threading
@@ -27,9 +28,21 @@ from mcnl import app, canon, handbook, handbook_schematics, hf_runtime, measure,
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "out" / "gui"
-# адаптер режима 1 (trained_on - на чём обучен: инструкция), адаптер режима 2 - на той же базе: q35_4b_v31_m2 (17.11.2026,
-# docs/mode2_spec.md, раздел 9); нет папки или в ней нет весов - режим 2 у Qwen недоступен, режим 1 работает
-DEFAULTS = {"base": "Qwen/Qwen3.5-4B", "adapter": str(ROOT / "out" / "q35_4b" / "adapter"), "trained_on": "v2",
+# Адаптер режима 1 (trained_on - на чём обучен: инструкция): q35_4b_v32_m1 (19.11.2026, docs/stage2_plan.md, «Итоги
+# 19.11.2026»), нет его (или недокачан) - прежний q35_4b на v2. Адаптер режима 2 - на той же базе: q35_4b_v31_m2 (17.11.2026,
+# docs/mode2_spec.md, раздел 9); нет папки или в ней нет весов - режим 2 у Qwen недоступен, режим 1 работает.
+MODE1_ADAPTERS = [(ROOT / "out" / "q35_4b_v32_m1" / "adapter", "v3"), (ROOT / "out" / "q35_4b" / "adapter", "v2")]
+
+
+def mode1_default(candidates=None):
+    """-> (папка адаптера режима 1, на чём обучен): первый полный из списка, иначе первый (ошибка покажется при загрузке)."""
+    candidates = candidates or MODE1_ADAPTERS
+    found = next(((p, t) for p, t in candidates if not hf_runtime.adapter_missing(Path(p))), candidates[0])
+    return str(found[0]), found[1]
+
+
+_M1, _M1_TRAINED = mode1_default()
+DEFAULTS = {"base": "Qwen/Qwen3.5-4B", "adapter": _M1, "trained_on": _M1_TRAINED,
             "adapter_mode2": str(ROOT / "out" / "q35_4b_v31_m2" / "adapter"), "trained_on_mode2": "v3",
             "real_opamp": True}  # реальный ОУ на чертеже по умолчанию (решение автора 16.11.2026)
 MODE_NAMES = {1: "перевод описания", 2: "подбор номиналов"}
@@ -260,6 +273,70 @@ def add_history(prompt, result, path=None, mode=1):
     p.write_text("".join(json.dumps(h, ensure_ascii=False) + "\n" for h in items[-HISTORY_SIZE:]), encoding="utf-8")
 
 
+FEEDBACK = OUT / "feedback"  # отзывы: папка на каждый (19.11.2026, переносная версия для научных руководителей)
+
+
+def window_png(root):
+    """Снимок окна (Windows, PrintWindow: окно может быть закрыто другими) -> PNG или None."""
+    try:
+        import ctypes
+        import struct
+        import zlib
+        from ctypes import wintypes
+        user, gdi = ctypes.windll.user32, ctypes.windll.gdi32
+        hwnd = user.GetParent(root.winfo_id())
+        rect = wintypes.RECT()
+        user.GetWindowRect(hwnd, ctypes.byref(rect))
+        w, h = rect.right - rect.left, rect.bottom - rect.top
+        hdc = user.GetWindowDC(hwnd)
+        mem = gdi.CreateCompatibleDC(hdc)
+        bmp = gdi.CreateCompatibleBitmap(hdc, w, h)
+        gdi.SelectObject(mem, bmp)
+        user.PrintWindow(hwnd, mem, 2)
+        buf = ctypes.create_string_buffer(w * h * 4)
+        gdi.GetDIBits(mem, bmp, 0, h, buf, struct.pack("<IiiHHIIiiII", 40, w, -h, 1, 32, 0, 0, 0, 0, 0, 0), 0)
+        gdi.DeleteObject(bmp)
+        gdi.DeleteDC(mem)
+        user.ReleaseDC(hwnd, hdc)
+        bgra, rgb = buf.raw, bytearray(w * h * 3)
+        rgb[0::3], rgb[1::3], rgb[2::3] = bgra[2::4], bgra[1::4], bgra[0::4]
+        rows = b"".join(b"\x00" + bytes(rgb[r * w * 3:(r + 1) * w * 3]) for r in range(h))
+
+        def chunk(t, d):
+            return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xFFFFFFFF)
+        return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(rows, 6)) + chunk(b"IEND", b""))
+    except Exception:  # noqa: BLE001 - снимок - приложение к отзыву, без него отзыв всё равно сохраняется
+        return None
+
+
+def save_feedback(comment, prompt, mode, rep=None, translator="", device="", models=None, png=None, folder=None):
+    """Отзыв «результат неверный» -> папка feedback/<дата-время>: feedback.json (запрос, режим, ответ модели, нетлист,
+    замечания, карточки, переводчик, устройство, модели, комментарий), схема .cir и снимок окна, если есть."""
+    rep = rep or {}
+    base = Path(folder or FEEDBACK)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    d, k = base / stamp, 1
+    while d.exists():
+        k += 1
+        d = base / f"{stamp}-{k}"
+    d.mkdir(parents=True)
+    same = rep.get("prompt") == prompt  # запрос в окне мог измениться после расчёта
+    data = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "comment": comment.strip(), "prompt": prompt, "mode": mode,
+            "translator": translator, "device": device, "models": models or {},
+            "result_for_this_prompt": same, "output": rep.get("output"), "netlist": rep.get("netlist"),
+            "notes": notes_of(rep) if rep else [], "cards": dict(cards(rep.get("measured"))) if rep else {},
+            "measured": rep.get("measured"), "refused": rep.get("refused"),
+            "synth": {k: (rep.get("synth") or {}).get(k) for k in ("topology", "wanted", "achieved")} if rep.get("synth") else None}
+    (d / "feedback.json").write_text(json.dumps(data, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+    cir = rep.get("cir")
+    if cir and Path(cir).is_file():
+        shutil.copy2(cir, d / Path(cir).name)
+    if png:
+        (d / "window.png").write_bytes(png)
+    return d
+
+
 def load_settings():
     p = OUT / "settings.json"
     s = dict(DEFAULTS)
@@ -392,6 +469,7 @@ class Window:
         self.b_build.pack(side="left")
         ttk.Button(buttons, text="Пересчитать нетлист", command=self.recalc).pack(side="left", padx=6)
         ttk.Button(buttons, text="Открыть в MC12", command=self.open_mc12).pack(side="left")
+        ttk.Button(buttons, text="Сообщить об ошибке…", command=self.feedback).pack(side="left", padx=6)
         ttk.Label(left, text="Замечания").pack(anchor="w", pady=(6, 0))
         self.notes = tk.Text(left, height=8, wrap="word", font=("Segoe UI", 9), state="disabled", relief="flat",
                              background=self.root.cget("background"))
@@ -541,6 +619,60 @@ class Window:
     def _opamp(self):
         """Модель реального ОУ для чертежа или None; читается в главном потоке и уходит в задачу значением."""
         return app.OPAMP_REAL if self.real_opamp.get() else None
+
+    def feedback(self):
+        """Отзыв: результат неверный. Снимок окна - до диалога, чтобы диалог его не закрыл."""
+        prompt = self.prompt.get("1.0", "end").strip()
+        if not prompt and not self.rep:
+            self.status.set("Сообщать пока не о чем: введите запрос и постройте схему")
+            return
+        png = window_png(self.root)
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Сообщить об ошибке")
+        dlg.transient(self.root)
+        ttk.Label(dlg, text="Что не так? Если знаете, как должно быть, - напишите (например: «C1 должен быть на землю»,\n"
+                            "«это ФВЧ, а получился ФНЧ»). Сохранятся запрос, ответ модели, схема и снимок окна.",
+                  justify="left").pack(anchor="w", padx=12, pady=(12, 6))
+        text = tk.Text(dlg, width=70, height=7, wrap="word", font=("Segoe UI", 10))
+        text.pack(fill="both", expand=True, padx=12)
+        text.focus_set()
+        row = ttk.Frame(dlg)
+        row.pack(fill="x", padx=12, pady=12)
+
+        def save():
+            name = self.choice.get()
+            tr = self.translators.get(name)
+            try:
+                d = save_feedback(text.get("1.0", "end"), prompt, self.mode.get(), self.rep, name,
+                                  getattr(tr, "device", ""), self._models_info(name), png)
+            except OSError as err:
+                self.status.set(f"Отзыв не сохранён: {err}")
+            else:
+                self.status.set(f"Отзыв сохранён: {d}. Папку {FEEDBACK} можно прислать целиком - спасибо!")
+            dlg.destroy()
+
+        ttk.Button(row, text="Сохранить", command=save).pack(side="right")
+        ttk.Button(row, text="Отмена", command=dlg.destroy).pack(side="right", padx=6)
+        ttk.Button(row, text="Открыть папку отзывов", command=self._open_feedback).pack(side="left")
+        dlg.grab_set()
+
+    def _open_feedback(self):
+        FEEDBACK.mkdir(parents=True, exist_ok=True)
+        try:
+            os.startfile(str(FEEDBACK))  # noqa: S606 - своя папка программы
+        except (AttributeError, OSError) as err:
+            self.status.set(f"Папка отзывов: {FEEDBACK} ({err})")
+
+    def _models_info(self, name):
+        """Какие модели отвечали: для отзыва (адаптеры или файлы GGUF)."""
+        if name == LLAMA:
+            from mcnl.translators.llama_server import find_runtime
+            rt = find_runtime(ROOT) or {}
+            return {k: Path(v).name for k, v in rt.items() if k.startswith("model")}
+        if name == QWEN:
+            st = self.settings
+            return {"adapter": Path(st.get("adapter", "")).parent.name, "adapter_mode2": Path(st.get("adapter_mode2", "")).parent.name}
+        return {}
 
     def open_mc12(self):
         cir = (self.rep or {}).get("cir")

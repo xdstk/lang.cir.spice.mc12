@@ -81,6 +81,47 @@ class Data(unittest.TestCase):
         self.assertEqual(json.loads(p.read_text(encoding="utf-8")), {"adapter": "x", "real_opamp": False})
         self.assertTrue(gui.DEFAULTS["real_opamp"])
 
+    def test_save_feedback(self):
+        """Отзыв о неверном результате: папка с feedback.json, схемой .cir и снимком; повтор в ту же секунду - своя папка."""
+        import shutil
+        work = gui.ROOT / "out" / "test_gui_feedback"
+        shutil.rmtree(work, ignore_errors=True)
+        work.mkdir(parents=True)
+        cir = work / "circuit_001.cir"
+        cir.write_text("[Main]\n")
+        rep = {"prompt": "RC ФНЧ: R1 10 кОм, C1 100 нФ", "output": "V1 IN 0 DC 0\nR1 IN OUT 10k\nC1 OUT 0 100n",
+               "netlist": "V1 IN 0 DC 0\nR1 IN OUT 10k\nC1 OUT 0 100n\n", "cir": str(cir),
+               "measured": {"type": "LP", "fc": 159.2, "k_pass_db": 0.0}}
+        d = gui.save_feedback("C1 должен быть на землю\n", rep["prompt"], 1, rep, gui.LLAMA, "процессор",
+                              {"model": "m1-Q4_K_M.gguf"}, b"\x89PNG", folder=work / "fb")
+        data = json.loads((d / "feedback.json").read_text(encoding="utf-8"))
+        self.assertEqual(data["comment"], "C1 должен быть на землю")
+        self.assertTrue(data["result_for_this_prompt"])
+        self.assertEqual((data["mode"], data["translator"], data["device"]), (1, gui.LLAMA, "процессор"))
+        self.assertEqual(data["output"], rep["output"])
+        self.assertEqual(data["cards"]["Тип"], "ФНЧ")
+        self.assertEqual(sorted(p.name for p in d.iterdir()), ["circuit_001.cir", "feedback.json", "window.png"])
+        d2 = gui.save_feedback("", "другой запрос", 2, rep, folder=work / "fb")  # результат - от прежнего запроса
+        self.assertNotEqual(d, d2)
+        self.assertFalse(json.loads((d2 / "feedback.json").read_text(encoding="utf-8"))["result_for_this_prompt"])
+        d3 = gui.save_feedback("нет результата", "запрос", 1, None, folder=work / "fb")
+        self.assertEqual(json.loads((d3 / "feedback.json").read_text(encoding="utf-8"))["notes"], [])
+
+    def test_mode1_default_falls_back(self):
+        """Адаптер режима 1: v3.2, а без его весов - прежний на v2 (19.11.2026)."""
+        work = gui.ROOT / "out" / "test_gui_m1"
+        import shutil
+        shutil.rmtree(work, ignore_errors=True)
+        new, old = work / "v32" / "adapter", work / "v2" / "adapter"
+        for p in (new, old):
+            p.mkdir(parents=True)
+            (p / "adapter_config.json").write_text("{}")
+        (old / "adapter_model.safetensors").write_bytes(b"")
+        cands = [(new, "v3"), (old, "v2")]
+        self.assertEqual(gui.mode1_default(cands), (str(old), "v2"))  # у v3.2 нет весов
+        (new / "adapter_model.safetensors").write_bytes(b"")
+        self.assertEqual(gui.mode1_default(cands), (str(new), "v3"))
+
     def test_notes(self):
         rep = {"refused": {"code": "out_of_class", "reason": "транзистор"}, "parse_errors": ["строка 2"],
                "messages": ["MC12 не выполнил схему (S1)"], "notes": ["R2: второй вывод никуда не подключён"]}
